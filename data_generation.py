@@ -79,7 +79,7 @@ class data_generation:
             
             if self.bump_placement == 'random':
                 rf_location = np.random.rand(self.num_neuron * self.num_ensemble, self.dim)
-                rf_location = min_z + rf * (max_z - min_z)
+                rf_location = min_z + rf_location * (max_z - min_z)
             elif self.bump_placement == 'uniform':
                 rf_location = np.tile(np.array([min_z + [(i+0.5) / self.num_neuron * (max_z - min_z) for i in range(self.num_neuron)] for j in range(self.dim)]).T, 
                              (self.num_ensemble,1))

@@ -17,7 +17,7 @@ class data_generation:
             peak_firing=4.0,
             back_firing=0.005,
             tuning_width=1.2,
-            snr_scale = 1.0,
+            snr_scale=1.0,
             poisson_noise=False,
             seed=1337
     ):

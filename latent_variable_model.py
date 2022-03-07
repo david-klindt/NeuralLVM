@@ -86,6 +86,7 @@ class LatentVariableModel(torch.nn.Module):
             num_neuron,
             num_hidden=256,
             num_ensemble=2,
+            latent_dim=2,
             seed=2347,
             tuning_width=2.0,
             nonlinearity='exp',
@@ -94,12 +95,13 @@ class LatentVariableModel(torch.nn.Module):
         super(LatentVariableModel, self).__init__()
         self.num_neuron = num_neuron
         self.num_ensemble = num_ensemble
+        self.latent_dim = latent_dim
         self.nonlinearity = nonlinearity
         self.kernel_size = kernel_size
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
-            torch.randn(self.num_neuron, 2 * num_ensemble),
+            torch.randn(self.num_neuron, latent_dim * num_ensemble),
             requires_grad=True
         )
         self.log_tuning_width = torch.nn.Parameter(
@@ -114,8 +116,6 @@ class LatentVariableModel(torch.nn.Module):
             torch.randn(num_neuron),
             requires_grad=True
         )
-        selector = torch.stack([torch.eye(4) for _ in range(num_ensemble)], 0)
-        self.selector = torch.nn.Parameter(selector, requires_grad=False)
         self.encoder = torch.nn.Sequential(
             torch.nn.Conv1d(num_neuron, num_neuron, kernel_size,
                             padding='same', groups=num_neuron),
@@ -126,7 +126,7 @@ class LatentVariableModel(torch.nn.Module):
                 num_hidden, num_hidden, 1, padding='same'),
             torch.nn.ReLU(),
             torch.nn.Conv1d(
-                num_hidden, num_ensemble * 4 * 2, 1, padding='same')
+                num_hidden, 2 * num_ensemble * latent_dim * 2, 1, padding='same')
         )
 
     def forward(self, x, z=None):
@@ -134,7 +134,7 @@ class LatentVariableModel(torch.nn.Module):
         x = self.encoder(x)
         x = x[0].T  # reshape to length x channel
 
-        mu, logvar = torch.split(x, self.num_ensemble * 4, dim=1)
+        mu, logvar = torch.split(x, self.num_ensemble * self.latent_dim * 2, dim=1)
 
         if z is None:
             z_vector = reparameterize(mu, logvar)
@@ -143,7 +143,9 @@ class LatentVariableModel(torch.nn.Module):
         rf_vector = angle2vector(self.receptive_fields)
 
         dist = (rf_vector[..., None] - z_vector.T[None])**2
-        pairs = sum_pairs(sum_pairs(dist))
+        pairs = sum_pairs(dist)
+        if self.latent_dim == 2:
+            pairs = sum_pairs(pairs)
         response = - pairs / torch.exp(self.log_tuning_width)
         if self.nonlinearity == 'exp':
             response = torch.exp(response)
@@ -271,6 +273,7 @@ class StochasticNeurons(torch.nn.Module):
             self,
             N,
             num_ensemble=2,
+            latent_dim=2,
             seed=42,
             noise=False,
             tuning_width=2.0,
@@ -281,10 +284,11 @@ class StochasticNeurons(torch.nn.Module):
         self.tuning_width = tuning_width
         self.scale = scale
         self.noise = noise
+        self.latent_dim = latent_dim
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
-            torch.rand(num_ensemble * N, 2) * 2 * np.pi,
+            torch.rand(num_ensemble * N, latent_dim) * 2 * np.pi,
             requires_grad=False
         )
         ensemble_weights = np.zeros((N * num_ensemble, num_ensemble))
@@ -294,7 +298,7 @@ class StochasticNeurons(torch.nn.Module):
             torch.tensor(ensemble_weights, dtype=torch.float),
             requires_grad=False
         )
-        selector = torch.stack([torch.eye(4) for i in range(num_ensemble)], 0)
+        selector = torch.stack([torch.eye(2 * latent_dim) for i in range(num_ensemble)], 0)
         self.selector = torch.nn.Parameter(selector, requires_grad=False)
 
     def forward(self, z):
@@ -304,10 +308,12 @@ class StochasticNeurons(torch.nn.Module):
         # early selection
         selector = self.ensemble_weights[..., None, None] * self.selector[None]
         selector = torch.concat(torch.split(selector, 1, dim=1), 3).view(
-            -1, 4, self.num_ensemble * 4)
+            -1, 2 * self.latent_dim, self.num_ensemble * 2 * self.latent_dim)
         selected = torch.matmul(selector, z_vector.T)
         dist = (rf_vector[..., None] - selected)**2
-        pairs = sum_pairs(sum_pairs(dist))
+        pairs = sum_pairs(dist)
+        if self.latent_dim == 2:
+            pairs = sum_pairs(pairs)
         response = torch.exp(-pairs / self.tuning_width) * self.scale
         responses = response[:, 0]
         if self.noise:
@@ -375,14 +381,15 @@ def test_simulation():
         fig0.show()
 
 
-def test_training(num_ensemble=3, num_neuron=50, z_smoothness=3,
+def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
                   num_sample=100000, num_test=10000):
     model = StochasticNeurons(
-        num_neuron, num_ensemble=num_ensemble, noise=True).to(device)
+        num_neuron, num_ensemble=num_ensemble, noise=True, latent_dim=latent_dim).to(device)
     ensembler = LatentVariableModel(
         num_neuron * num_ensemble,
         num_hidden=256,
         num_ensemble=num_ensemble,
+        latent_dim=latent_dim,
         seed=89754,
         tuning_width=2.0,
         nonlinearity='exp',
@@ -393,11 +400,11 @@ def test_training(num_ensemble=3, num_neuron=50, z_smoothness=3,
         ensembler)))
 
     if z_smoothness > 0:  # gp latents
-        z_train = torch_circular_gp(num_sample, 2 * num_ensemble, z_smoothness)
-        z_test = torch_circular_gp(num_test, 2 * num_ensemble, z_smoothness)
+        z_train = torch_circular_gp(num_sample, latent_dim * num_ensemble, z_smoothness)
+        z_test = torch_circular_gp(num_test, latent_dim * num_ensemble, z_smoothness)
     else:  # iid latents
-        z_train = torch.rand(num_sample, 2 * num_ensemble) * 2 * np.pi
-        z_test = torch.rand(num_test, 2 * num_ensemble).to(device) * 2 * np.pi
+        z_train = torch.rand(num_sample, latent_dim * num_ensemble) * 2 * np.pi
+        z_test = torch.rand(num_test, latent_dim * num_ensemble).to(device) * 2 * np.pi
 
     z_train = z_train.to(device)
     z_test = z_test.to(device)
@@ -425,13 +432,14 @@ def test_training(num_ensemble=3, num_neuron=50, z_smoothness=3,
 
 def analysis(ensembler, model, trainer, z_test):
     num_ensemble = ensembler.num_ensemble
+    latent_dim = ensembler.latent_dim
     y_, z_, mu, logvar = ensembler(trainer.data_test)
 
     plt.figure(figsize=(12, 12))
-    for i in range(2 * num_ensemble):
-        for j in range(2 * num_ensemble):
-            plt.subplot(2 * num_ensemble, 2 * num_ensemble,
-                        i * 2 * num_ensemble + j + 1)
+    for i in range(latent_dim * num_ensemble):
+        for j in range(latent_dim * num_ensemble):
+            plt.subplot(latent_dim * num_ensemble, latent_dim * num_ensemble,
+                        i * latent_dim * num_ensemble + j + 1)
             plt.scatter(
                 z_test[:, i].detach().cpu().numpy(),
                 z_[:, j].detach().cpu().numpy(),
@@ -443,8 +451,8 @@ def analysis(ensembler, model, trainer, z_test):
     plt.show()
 
     plt.figure(figsize=(12, 12))
-    for i in range(2 * num_ensemble):
-        plt.subplot(num_ensemble, 2, i + 1)
+    for i in range(latent_dim * num_ensemble):
+        plt.subplot(num_ensemble, latent_dim, i + 1)
         plt.plot(trainer.data_test[i * 25, :200].detach().cpu().numpy())
         plt.plot(y_[i * 25, :200].detach().cpu().numpy())
     plt.legend(['true', 'predicted'])
@@ -480,17 +488,16 @@ def analysis(ensembler, model, trainer, z_test):
 
     # encoding
     plt.figure(figsize=(18, 6))
-    for i in range(num_ensemble * 2):
-        plt.subplot(2, num_ensemble * 2, i + 1)
+    for i in range(num_ensemble * latent_dim):
+        plt.subplot(2, num_ensemble * latent_dim, i + 1)
         plt.scatter(*mu[:, 2 * i:2 * (i + 1)].detach().cpu().numpy().T,
                     c=torch.exp(logvar[:, 2 * i]).detach().cpu().numpy())
         plt.colorbar()
 
-        plt.subplot(2, num_ensemble * 2, i + num_ensemble * 2 + 1)
+        plt.subplot(2, num_ensemble * latent_dim, i + num_ensemble * latent_dim + 1)
         plt.scatter(*mu[:, 2 * i:2 * (i + 1)].detach().cpu().numpy().T,
                     c=torch.exp(logvar[:, 2 * i + 1]).detach().cpu().numpy())
         plt.colorbar()
     plt.title('Variational Encoding')
     plt.tight_layout()
     plt.show()
-

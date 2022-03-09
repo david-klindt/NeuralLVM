@@ -4,6 +4,7 @@ import numpy as np
 import time
 from scipy.stats import pearsonr, spearmanr
 import matplotlib.pyplot as plt
+from sklearn.feature_selection import mutual_info_regression
 from gtda.homology import VietorisRipsPersistence
 from gtda.plotting import plot_diagram
 
@@ -59,6 +60,10 @@ def compute_kld(q1_mu, q1_logvar, q0_mu, q0_logvar):
     return KL
 
 
+def compute_slowness_loss(mu):
+    return torch.mean((mu[1:] - mu[:-1])**2)
+
+
 def compute_poisson_loss(y, y_):
     return torch.mean(y_ - y * torch.log(y_ + 1e-9))
 
@@ -87,10 +92,11 @@ class LatentVariableModel(torch.nn.Module):
             num_hidden=256,
             num_ensemble=2,
             latent_dim=2,
-            seed=2347,
+            seed=2093857,
             tuning_width=2.0,
             nonlinearity='exp',
             kernel_size=1,
+            normalize_encodings=True,
     ):
         super(LatentVariableModel, self).__init__()
         self.num_neuron = num_neuron
@@ -98,6 +104,7 @@ class LatentVariableModel(torch.nn.Module):
         self.latent_dim = latent_dim
         self.nonlinearity = nonlinearity
         self.kernel_size = kernel_size
+        self.normalize_encodings = normalize_encodings
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
@@ -125,23 +132,34 @@ class LatentVariableModel(torch.nn.Module):
             torch.nn.Conv1d(
                 num_hidden, num_hidden, 1, padding='same'),
             torch.nn.ReLU(),
-            torch.nn.Conv1d(
-                num_hidden, 2 * num_ensemble * latent_dim * 2, 1, padding='same')
+        )
+        self.mean_head = torch.nn.Linear(
+            num_hidden, num_ensemble * latent_dim * 2
+        )
+        self.var_head = torch.nn.Linear(
+            num_hidden, num_ensemble * latent_dim * 1
         )
 
     def forward(self, x, z=None):
-        x = x[None] # reshape inputs to: batch x channel x length
+        x = x[None]  # reshape inputs to: batch x channel x length
         x = self.encoder(x)
         x = x[0].T  # reshape to length x channel
 
-        mu, logvar = torch.split(x, self.num_ensemble * self.latent_dim * 2, dim=1)
+        mu = self.mean_head(x)
+        logvar = self.var_head(x)
+
+        if self.normalize_encodings:
+            mu = mu.view(-1, self.num_ensemble, self.latent_dim, 2)
+            mu = mu / torch.sum(mu ** 2, dim=-1, keepdim=True) ** .5
+            mu = mu.view(-1, self.num_ensemble * self.latent_dim * 2)
 
         if z is None:
-            z_vector = reparameterize(mu, logvar)
-            z = vector2angle(z_vector)
+            z_angle = vector2angle(mu)
+            z = reparameterize(z_angle, logvar)
+
+        # Response Computation
         z_vector = angle2vector(z)
         rf_vector = angle2vector(self.receptive_fields)
-
         dist = (rf_vector[..., None] - z_vector.T[None])**2
         pairs = sum_pairs(dist)
         if self.latent_dim == 2:
@@ -172,9 +190,12 @@ class Trainer:
             num_steps=50000,
             num_log_step=1000,
             batch_size=1024,
-            seed=823764,
+            seed=23412521,
             learning_rate=1e-3,
             num_worse=5,  # if loss doesn't improve X times, stop.
+            weight_kl=1e-2,
+            weight_time=0,
+            weight_entropy=0,
     ):
         torch.manual_seed(seed)
         self.model = model
@@ -192,6 +213,9 @@ class Trainer:
         self.num_steps = num_steps
         self.num_log_step = num_log_step
         self.num_worse = num_worse
+        self.weight_kl = weight_kl
+        self.weight_time = weight_time
+        self.weight_entropy = weight_entropy
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     def train(self):
@@ -209,14 +233,10 @@ class Trainer:
             else:
                 z = None
             y_, z_, mu, logvar = self.model(y, z=z)
-
-            # normal prior for all
-            kld_to_normal = compute_kld_to_normal(mu, logvar)
-            # forward transition prior (add backward?, i.e. JSD)
-            kld_transition = compute_kld(
-                mu[1:], logvar[1:], mu[:-1], logvar[:-1])
-            kld_loss = kld_to_normal + kld_transition
-
+            slowness_loss = compute_slowness_loss(mu)
+            if self.model.normalize_encodings:  # if normalized, take out of KL.
+                mu = torch.zeros_like(logvar)
+            kld_loss = compute_kld_to_normal(mu, logvar)
             poisson_loss = compute_poisson_loss(y, y_)
             ensemble_weights = torch.nn.functional.softmax(
                 self.model.ensemble_weights, dim=1)
@@ -225,17 +245,22 @@ class Trainer:
             if self.mode is 'encoder':
                 loss = torch.sum((angle2vector(z) - angle2vector(z_)) ** 2)
             else:
-                loss = poisson_loss + 1e-2 * kld_loss# + 1e-3 * entropy
-
+                loss = (
+                    poisson_loss +
+                    self.weight_kl * kld_loss +
+                    self.weight_time * slowness_loss +
+                    self.weight_entropy * entropy
+                )
             loss.backward()
             self.optimizer.step()
             running_loss += loss.item()
 
             if i > 0 and not (i % self.num_log_step):
                 y_, z_, mu, logvar = self.model(self.data_test, z=self.z_test)
-                kld_to_normal = compute_kld_to_normal(mu, logvar)
-                kld_transition = compute_kld(
-                    mu[1:], logvar[1:], mu[:-1], logvar[:-1])
+                slowness_loss = compute_slowness_loss(mu)
+                if self.model.normalize_encodings:
+                    mu = torch.zeros_like(logvar)
+                kld_loss = compute_kld_to_normal(mu, logvar)
                 poisson_loss = compute_poisson_loss(self.data_test, y_)
                 if self.mode is not 'full':
                     encoder_loss = torch.sum(
@@ -246,9 +271,9 @@ class Trainer:
                     corrs.append(pearsonr(y_[j].detach().cpu().numpy(),
                                           self.data_test[j].detach().cpu().numpy())[0])
                 print('run=%s, running_loss=%.4e, negLLH=%.4e, KL_normal=%.4e, '
-                      'KL_transition=%.4e, corr=%.6f, H=%.4e, time=%.2f' % (
-                    i, running_loss, poisson_loss.item(), kld_to_normal.item(),
-                    kld_transition.item(), np.nanmean(corrs), entropy.item(),
+                      'Slowness_loss=%.4e, corr=%.6f, H=%.4e, time=%.2f' % (
+                    i, running_loss, poisson_loss.item(), kld_loss.item(),
+                    slowness_loss.item(), np.nanmean(corrs), entropy.item(),
                     time.time() - t0
                 ))
 
@@ -274,7 +299,7 @@ class StochasticNeurons(torch.nn.Module):
             N,
             num_ensemble=2,
             latent_dim=2,
-            seed=42,
+            seed=304857,
             noise=False,
             tuning_width=2.0,
             scale=16.0,
@@ -390,7 +415,7 @@ def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
         num_hidden=256,
         num_ensemble=num_ensemble,
         latent_dim=latent_dim,
-        seed=89754,
+        seed=234587,
         tuning_width=2.0,
         nonlinearity='exp',
         kernel_size=9,
@@ -422,11 +447,10 @@ def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
         z_test=None,
         num_steps=20000,
         batch_size=1024,
-        seed=823764,
+        seed=923683,
         learning_rate=3e-3
     )
     trainer.train()
-
     analysis(ensembler, model, trainer, z_test)
 
 
@@ -435,39 +459,47 @@ def analysis(ensembler, model, trainer, z_test):
     latent_dim = ensembler.latent_dim
     y_, z_, mu, logvar = ensembler(trainer.data_test)
 
-    plt.figure(figsize=(12, 12))
+    # plot ensemble_weights
+    ensemble_weights = torch.nn.functional.softmax(
+        ensembler.ensemble_weights, dim=1).detach().cpu().numpy()
+    plt.plot(ensemble_weights)
+    plt.legend(np.arange(num_ensemble))
+    plt.title('Ensemble Weights')
+    plt.xlabel('Neurons')
+    plt.ylabel('Weights')
+    plt.tight_layout()
+    plt.show()
+
+    # all latent comparisons
+    vars = torch.exp(logvar).detach().cpu().numpy()
+    plt.figure(figsize=(20, 20))
     for i in range(latent_dim * num_ensemble):
         for j in range(latent_dim * num_ensemble):
             plt.subplot(latent_dim * num_ensemble, latent_dim * num_ensemble,
                         i * latent_dim * num_ensemble + j + 1)
-            plt.scatter(
-                z_test[:, i].detach().cpu().numpy(),
-                z_[:, j].detach().cpu().numpy(),
-                s=5
-            )
-    plt.xlabel('true latent')
-    plt.ylabel('pred latent')
+            x = z_test[:, i].detach().cpu().numpy()
+            y = z_[:, j].detach().cpu().numpy()
+            plt.scatter(x, y, c=vars[:, j], s=1)
+            plt.title('MI=%.4f' % mutual_info_regression(x[:, None], y))
+            plt.colorbar(label='variance')
+            plt.xlabel('true z%s' % i)
+            plt.ylabel('pred z%s' % j)
     plt.tight_layout()
     plt.show()
 
+    # rate predictions
     plt.figure(figsize=(12, 12))
     for i in range(latent_dim * num_ensemble):
         plt.subplot(num_ensemble, latent_dim, i + 1)
         plt.plot(trainer.data_test[i * 25, :200].detach().cpu().numpy())
         plt.plot(y_[i * 25, :200].detach().cpu().numpy())
-    plt.legend(['true', 'predicted'])
-    plt.title('Responses')
+        plt.legend(['true', 'predicted'])
+        plt.title('Responses')
     plt.tight_layout()
     plt.show()
 
-    ensemble_weights = torch.nn.functional.softmax(
-        ensembler.ensemble_weights, dim=1).detach().cpu().numpy()
-    plt.plot(ensemble_weights)
-    plt.title('Ensemble Weights')
-    plt.tight_layout()
-    plt.show()
-
-    plt.figure(figsize=(12, 6))
+    # RF comparisons
+    plt.figure(figsize=(18, 6))
     for i in range(model.receptive_fields.shape[1]):
         for j in range(ensembler.receptive_fields.shape[1]):
             plt.subplot(
@@ -481,23 +513,9 @@ def analysis(ensembler, model, trainer, z_test):
                        2 * np.pi),
                 c=ensemble_weights.argmax(1)
             )
-    plt.xlabel('true RF')
-    plt.ylabel('pred RF')
-    plt.tight_layout()
-    plt.show()
-
-    # encoding
-    plt.figure(figsize=(18, 6))
-    for i in range(num_ensemble * latent_dim):
-        plt.subplot(2, num_ensemble * latent_dim, i + 1)
-        plt.scatter(*mu[:, 2 * i:2 * (i + 1)].detach().cpu().numpy().T,
-                    c=torch.exp(logvar[:, 2 * i]).detach().cpu().numpy())
-        plt.colorbar()
-
-        plt.subplot(2, num_ensemble * latent_dim, i + num_ensemble * latent_dim + 1)
-        plt.scatter(*mu[:, 2 * i:2 * (i + 1)].detach().cpu().numpy().T,
-                    c=torch.exp(logvar[:, 2 * i + 1]).detach().cpu().numpy())
-        plt.colorbar()
-    plt.title('Variational Encoding')
+            plt.colorbar(label='ensembles')
+            plt.xlabel('true')
+            plt.ylabel('pred')
+            plt.title('Receptive fields')
     plt.tight_layout()
     plt.show()

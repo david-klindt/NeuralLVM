@@ -108,3 +108,30 @@ class data_generation:
         response = response / self.snr_scale
         
         return response
+
+def get_data(num_neuron,
+             len_data_train,
+             len_data_test,
+             index,
+             global_seed):
+    
+    data = data_generation(len_data=len_data_train+len_data_test,
+                           dim=1,
+                           num_neuron=num_neuron,
+                           poisson_noise=True,
+                           bump_placement='random',
+                           seed=global_seed+index)
+    print("Generating latent\n")
+    z = data.generate_z()
+    z_train = z[:len_data_train,:]
+    z_test = z[len_data_train:,:]
+    
+    print("Generating receptive fields\n")
+    rf = data.generate_receptive_fields(z)
+    
+    print("Generating spikes")
+    y_train = data.generate_spikes(z_train,rf)
+    data.poisson_noise = False
+    y_test = data.generate_spikes(z_test,rf)
+    
+    return y_train, z_train, y_test, z_test, rf    

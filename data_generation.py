@@ -63,7 +63,7 @@ class data_generation:
             
         return z
        
-    def generate_spikes(self, z):
+    def generate_receptive_fields(self,z):
         np.random.seed(self.seed)
         
         if self.periodicity:
@@ -82,6 +82,11 @@ class data_generation:
             elif self.bump_placement == 'uniform':
                 rf_location = np.tile(np.array([min_z + [(i+0.5) / self.num_neuron * (max_z - min_z) for i in range(self.num_neuron)] for j in range(self.dim)]).T, 
                              (self.num_ensemble,1))
+        
+        return rf_location
+    
+    def generate_spikes(self,z,rf_location):
+        np.random.seed(self.seed)
         
         selector = np.stack([np.eye(self.dim) for i in range(self.num_ensemble)], 0)
         selector = self.ensemble_weights[..., None, None] * selector[None]

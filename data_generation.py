@@ -70,8 +70,9 @@ class data_generation:
             if self.bump_placement == 'random':
                 rf_location = 2 * np.pi * np.random.rand(self.num_neuron * self.num_ensemble, self.dim)
             elif self.bump_placement == 'uniform':
-                rf_location = np.tile(np.array([[(i+0.5) / self.num_neuron * (2 * np.pi) for i in range(self.num_neuron)] for j in range(self.dim)]).T, 
-                             (self.num_ensemble, 1))
+                rf_location = np.tile(np.array([[(i + 0.5) / self.num_neuron * (2 * np.pi)
+                                                 for i in range(self.num_neuron)] 
+                                                for j in range(self.dim)]).T, (self.num_ensemble, 1))
         else:
             min_z = np.min(z, axis=0)
             max_z = np.max(z, axis=0)
@@ -80,8 +81,9 @@ class data_generation:
                 rf_location = np.random.rand(self.num_neuron * self.num_ensemble, self.dim)
                 rf_location = min_z + rf_location * (max_z - min_z)
             elif self.bump_placement == 'uniform':
-                rf_location = np.tile(np.array([min_z + [(i + 0.5) / self.num_neuron * (max_z - min_z) for i in range(self.num_neuron)] for j in range(self.dim)]).T, 
-                             (self.num_ensemble, 1))
+                rf_location = np.tile(np.array([min_z + [(i + 0.5) / self.num_neuron * (max_z - min_z) 
+                                                         for i in range(self.num_neuron)] 
+                                                for j in range(self.dim)]).T, (self.num_ensemble, 1))
         
         return rf_location
     
@@ -109,19 +111,24 @@ class data_generation:
         
         return response
 
-def get_data(num_neuron,
-             len_data_train,
-             len_data_test,
-             index,
-             global_seed):
+def get_data(
+    num_neuron,
+    len_data_train,
+    len_data_test, 
+    index, 
+    global_seed
+):
     
-    data = data_generation(len_data=len_data_train+len_data_test,
-                           dim=1,
-                           num_neuron=num_neuron,
-                           poisson_noise=True,
-                           bump_placement='random',
-                           seed=global_seed+index)
-    print("Generating latent\n")
+    data = data_generation(
+        len_data=len_data_train + len_data_test,
+        dim=1, 
+        num_neuron=num_neuron,
+        poisson_noise=True,
+        bump_placement='random', 
+        seed=global_seed + index
+    )
+    
+    print("Generating latents\n")
     z = data.generate_z()
     z_train = z[:len_data_train, :]
     z_test = z[len_data_train:, :]

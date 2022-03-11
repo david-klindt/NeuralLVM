@@ -106,6 +106,8 @@ class LatentVariableModel(torch.nn.Module):
             nonlinearity='exp',
             kernel_size=1,
             normalize_encodings=True,
+            feature_type='bump',  # {'bump', 'shared', 'separate'}
+            num_feature_basis=3,  # careful this scales badly with latent_dim!
     ):
         super(LatentVariableModel, self).__init__()
         self.num_neuron = num_neuron
@@ -114,14 +116,11 @@ class LatentVariableModel(torch.nn.Module):
         self.nonlinearity = nonlinearity
         self.kernel_size = kernel_size
         self.normalize_encodings = normalize_encodings
+        self.feature_type = feature_type
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
             torch.randn(num_neuron, num_ensemble, latent_dim),
-            requires_grad=True
-        )
-        self.log_tuning_width = torch.nn.Parameter(
-            torch.ones(1) * np.log(tuning_width),
             requires_grad=True
         )
         self.ensemble_weights = torch.nn.Parameter(
@@ -168,6 +167,17 @@ class LatentVariableModel(torch.nn.Module):
             padding='same'
         )
 
+        self.feature_basis = FeatureBasis(
+            num_neuron,
+            feature_type=feature_type,
+            num_basis=num_feature_basis,
+            latent_dim=latent_dim,
+            tuning_width=tuning_width,
+            nonlinearity=nonlinearity,
+            variance=None,
+            seed=seed,
+        )
+
     def forward(self, x, z=None):
         # dimension names: B=Batch, L=Length, N=Neurons,
         # E=num_ensemble, D=latent_dim, V=angle as vector (2D)
@@ -196,17 +206,9 @@ class LatentVariableModel(torch.nn.Module):
             z_angle = vector2angle(mu)  # B x L x E x D
             z = reparameterize(z_angle, logvar)  # B x L x E x D
 
-        # Response Computation
-        z_vector = angle2vector(z)[:, :, None]  # B x L x 1 x E x D x V
-        rf_vector = angle2vector(  # 1 x 1 x N x E x D x V
-            self.receptive_fields)[None, None]
-        dist = torch.sum(  # B x L x N x E
-            (z_vector - rf_vector)**2, dim=(4, 5))
-        response = - dist / torch.exp(self.log_tuning_width)
-        if self.nonlinearity == 'exp':
-            response = torch.exp(response)
-        elif self.nonlinearity == 'softplus':
-            response = torch.log(torch.exp(response) + 1)
+        # Compute responses
+        response = self.feature_basis(z, self.receptive_fields)
+
         ensemble_weights = torch.nn.functional.softmax(  # 1 x 1 x N x E
             self.ensemble_weights, dim=1)[None, None]
         responses = torch.sum(  # B x L x N
@@ -218,6 +220,83 @@ class LatentVariableModel(torch.nn.Module):
             responses = responses[0]
 
         return responses, z, mu, logvar
+
+
+class FeatureBasis(torch.nn.Module):
+    def __init__(
+            self,
+            num_neuron,
+            feature_type='bump',  # {'bump', 'shared', 'separate'}
+            num_basis=3,
+            latent_dim=2,
+            tuning_width=2.0,
+            nonlinearity='exp',
+            variance=None,
+            seed=345978,
+    ):
+        super(FeatureBasis, self).__init__()
+        self.feature_type = feature_type
+        self.latent_dim = latent_dim
+        self.tuning_width = tuning_width  # of single bump
+        self.nonlinearity = nonlinearity
+        if variance is None:
+            variance = 4 * np.pi / num_basis
+        self.variance = variance  # of feature basis
+        torch.manual_seed(seed)
+
+        if feature_type == 'bump':
+            self.log_tuning_width = torch.nn.Parameter(
+                torch.ones(1) * np.log(tuning_width),
+                requires_grad=True
+            )
+        else:
+            # build grid of num_basis**latent_dim centers
+            means = torch.linspace(0, 2 * np.pi, num_basis + 1)[:-1]
+            means = torch.meshgrid([means for _ in range(latent_dim)])
+            means = torch.stack(means, 0).view(latent_dim, -1).T
+            # shape: num_basis**latent_dim x latent_dim
+            self.means = torch.nn.Parameter(means, requires_grad=False)
+            if feature_type == 'shared':
+                self.coeffs = torch.nn.Parameter(
+                    torch.randn(num_basis ** latent_dim, 1),
+                    requires_grad=True
+                )
+            elif feature_type == 'separate':
+                self.coeffs = torch.nn.Parameter(
+                    torch.randn(num_basis ** latent_dim, num_neuron),
+                    requires_grad=True
+                )
+
+    def forward(self, z, receptive_field_centers):
+        # dimension names: B=Batch, L=Length, N=Neurons, H=num_basis**latent_dim
+        # E=num_ensemble, D=latent_dim, V=angle as vector (2D)
+
+        z_vector = angle2vector(z)  # B x L x E x D x V
+        rf_vector = angle2vector(receptive_field_centers)  # N x E x D x V
+
+        if self.feature_type == 'bump':
+            z_vector = z_vector[:, :, None]  # B x L x 1 x E x D x V
+            rf_vector = rf_vector[None, None]  # 1 x 1 x N x E x D x V
+            dist = torch.sum(  # B x L x N x E
+                (z_vector - rf_vector) ** 2, dim=(4, 5))
+            response = - dist / torch.exp(self.log_tuning_width)
+        else:
+            means = angle2vector(self.means[:, None, None])  # H x 1 x 1 x D x V
+            means_per_neuron = means - rf_vector[None]  # H x N x E x D x V
+            # make dist: B x L x H x N x E x D x V
+            dist = z_vector[:, :, None, None] - means_per_neuron[None, None]
+            dist = torch.sum(dist ** 2, dim=(5, 6))  # B x L x H x N x E
+            response = torch.exp(- dist / self.variance)
+            # coeffs shape: 1 x 1 x H x {1 if shared, else N} x 1
+            coeffs = self.coeffs[None, None, :, :, None]
+            response = torch.sum(response * coeffs, dim=2)  # B x L x N x E
+
+        if self.nonlinearity == 'exp':
+            response = torch.exp(response)
+        elif self.nonlinearity == 'softplus':
+            response = torch.log(torch.exp(response) + 1)
+
+        return response
 
 
 class Trainer:
@@ -449,7 +528,7 @@ def test_simulation():
 
 
 def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
-                  num_sample=100000, num_test=10000):
+                  num_sample=100000, num_test=10000, feature_type='bump'):
     model = StochasticNeurons(
         num_neuron, num_ensemble=num_ensemble, noise=True, latent_dim=latent_dim).to(device)
     ensembler = LatentVariableModel(
@@ -461,6 +540,7 @@ def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
         tuning_width=2.0,
         nonlinearity='exp',
         kernel_size=9,
+        feature_type=feature_type,
     ).to(device)
     print('model', ensembler)
     print('number of trainable parameters in model:', (count_parameters(

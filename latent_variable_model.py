@@ -18,6 +18,14 @@ def count_parameters(model):
 
 
 def angle2vector(angle):
+    return torch.stack([torch.sin(angle), torch.cos(angle)], -1)
+
+
+def vector2angle(vector):
+    return torch.atan2(vector[..., 0], vector[..., 1])
+
+
+def angle2vector_flat(angle):
   vector = []
   for i in range(angle.shape[1]):
     vector.append(torch.sin(angle[:, i]))
@@ -25,7 +33,7 @@ def angle2vector(angle):
   return torch.stack(vector, 1)
 
 
-def vector2angle(vector):
+def vector2angle_flat(vector):
   angle = []
   for i in range(vector.shape[1] // 2):
     angle.append(torch.atan2(vector[:, i*2], vector[:, i*2+1]))
@@ -61,7 +69,8 @@ def compute_kld(q1_mu, q1_logvar, q0_mu, q0_logvar):
 
 
 def compute_slowness_loss(mu):
-    return torch.mean((mu[1:] - mu[:-1])**2)
+    """compute squared difference over 2nd dimension, i.e., time."""
+    return torch.mean((mu[:, 1:] - mu[:, -1])**2)
 
 
 def compute_poisson_loss(y, y_):
@@ -108,7 +117,7 @@ class LatentVariableModel(torch.nn.Module):
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
-            torch.randn(self.num_neuron, latent_dim * num_ensemble),
+            torch.randn(num_neuron, num_ensemble, latent_dim),
             requires_grad=True
         )
         self.log_tuning_width = torch.nn.Parameter(
@@ -116,7 +125,7 @@ class LatentVariableModel(torch.nn.Module):
             requires_grad=True
         )
         self.ensemble_weights = torch.nn.Parameter(
-            torch.randn((self.num_neuron, num_ensemble)),
+            torch.randn(num_neuron, num_ensemble),
             requires_grad=True
         )
         self.final_scale = torch.nn.Parameter(
@@ -124,56 +133,89 @@ class LatentVariableModel(torch.nn.Module):
             requires_grad=True
         )
         self.encoder = torch.nn.Sequential(
-            torch.nn.Conv1d(num_neuron, num_neuron, kernel_size,
-                            padding='same', groups=num_neuron),
             torch.nn.Conv1d(
-                num_neuron, num_hidden, 1, padding='same'),
+                in_channels=num_neuron,
+                out_channels=num_neuron,
+                kernel_size=kernel_size,
+                padding='same',
+                groups=num_neuron
+            ),
+            torch.nn.Conv1d(
+                in_channels=num_neuron,
+                out_channels=num_hidden,
+                kernel_size=1,
+                padding='same',
+            ),
             torch.nn.ReLU(),
             torch.nn.Conv1d(
-                num_hidden, num_hidden, 1, padding='same'),
+                in_channels=num_hidden,
+                out_channels=num_hidden,
+                kernel_size=1,
+                padding='same',
+            ),
             torch.nn.ReLU(),
         )
-        self.mean_head = torch.nn.Linear(
-            num_hidden, num_ensemble * latent_dim * 2
+        self.mean_head = torch.nn.Conv1d(
+            in_channels=num_hidden,
+            out_channels=num_ensemble * latent_dim * 2,
+            kernel_size=1,
+            padding='same'
         )
-        self.var_head = torch.nn.Linear(
-            num_hidden, num_ensemble * latent_dim * 1
+        self.var_head = torch.nn.Conv1d(
+            in_channels=num_hidden,
+            out_channels=num_ensemble * latent_dim,
+            kernel_size=1,
+            padding='same'
         )
 
     def forward(self, x, z=None):
-        x = x[None]  # reshape inputs to: batch x channel x length
-        x = self.encoder(x)
-        x = x[0].T  # reshape to length x channel
+        # dimension names: B=Batch, L=Length, N=Neurons,
+        # E=num_ensemble, D=latent_dim, V=angle as vector (2D)
+        input_shape = x.shape
+        if len(input_shape) == 2:
+            # required input shape: B x N x L
+            # if input is only N x L, prepend B dimension
+            x = x[None]
+        batch_size, num_neuron, length = x.shape
+        assert num_neuron == self.num_neuron
 
-        mu = self.mean_head(x)
-        logvar = self.var_head(x)
+        x = self.encoder(x)
+        mu = self.mean_head(x)  # B x E*D*V x L
+        mu = mu.permute(0, 2, 1)  # B x L x E*D*V
+        mu = mu.view(  # B x L x E x D x V
+            batch_size, length, self.num_ensemble, self.latent_dim, 2)
+        logvar = self.var_head(x)  # B x E*D x L
+        logvar = logvar.permute(0, 2, 1)  # B x L x E*D
+        logvar = logvar.view(  # B x L x E x D
+            batch_size, length, self.num_ensemble, self.latent_dim)
 
         if self.normalize_encodings:
-            mu = mu.view(-1, self.num_ensemble, self.latent_dim, 2)
             mu = mu / torch.sum(mu ** 2, dim=-1, keepdim=True) ** .5
-            mu = mu.view(-1, self.num_ensemble * self.latent_dim * 2)
 
         if z is None:
-            z_angle = vector2angle(mu)
-            z = reparameterize(z_angle, logvar)
+            z_angle = vector2angle(mu)  # B x L x E x D
+            z = reparameterize(z_angle, logvar)  # B x L x E x D
 
         # Response Computation
-        z_vector = angle2vector(z)
-        rf_vector = angle2vector(self.receptive_fields)
-        dist = (rf_vector[..., None] - z_vector.T[None])**2
-        pairs = sum_pairs(dist)
-        if self.latent_dim == 2:
-            pairs = sum_pairs(pairs)
-        response = - pairs / torch.exp(self.log_tuning_width)
+        z_vector = angle2vector(z)[:, :, None]  # B x L x 1 x E x D x V
+        rf_vector = angle2vector(  # 1 x 1 x N x E x D x V
+            self.receptive_fields)[None, None]
+        dist = torch.sum(  # B x L x N x E
+            (z_vector - rf_vector)**2, dim=(4, 5))
+        response = - dist / torch.exp(self.log_tuning_width)
         if self.nonlinearity == 'exp':
             response = torch.exp(response)
         elif self.nonlinearity == 'softplus':
             response = torch.log(torch.exp(response) + 1)
-        ensemble_weights = torch.nn.functional.softmax(
-            self.ensemble_weights, dim=1)
-        responses = torch.sum(
-            ensemble_weights[..., None] * response, dim=1)
-        responses = responses * torch.exp(self.final_scale[:, None])
+        ensemble_weights = torch.nn.functional.softmax(  # 1 x 1 x N x E
+            self.ensemble_weights, dim=1)[None, None]
+        responses = torch.sum(  # B x L x N
+            ensemble_weights * response, dim=3)
+        responses = responses * torch.exp(self.final_scale[None, None])
+        responses = responses.permute(0, 2, 1)  # B x N x L
+        if len(input_shape) == 2:
+            # if input had no batch dimension, remove this again
+            responses = responses[0]
 
         return responses, z, mu, logvar
 
@@ -327,8 +369,8 @@ class StochasticNeurons(torch.nn.Module):
         self.selector = torch.nn.Parameter(selector, requires_grad=False)
 
     def forward(self, z):
-        z_vector = angle2vector(z)
-        rf_vector = angle2vector(self.receptive_fields)
+        z_vector = angle2vector_flat(z)
+        rf_vector = angle2vector_flat(self.receptive_fields)
 
         # early selection
         selector = self.ensemble_weights[..., None, None] * self.selector[None]
@@ -458,6 +500,8 @@ def analysis(ensembler, model, trainer, z_test):
     num_ensemble = ensembler.num_ensemble
     latent_dim = ensembler.latent_dim
     y_, z_, mu, logvar = ensembler(trainer.data_test)
+    z_ = z_.view(z_test.shape)
+    logvar = logvar.view(z_test.shape)
 
     # plot ensemble_weights
     ensemble_weights = torch.nn.functional.softmax(
@@ -500,17 +544,20 @@ def analysis(ensembler, model, trainer, z_test):
 
     # RF comparisons
     plt.figure(figsize=(18, 6))
-    for i in range(model.receptive_fields.shape[1]):
-        for j in range(ensembler.receptive_fields.shape[1]):
+    true_rfs = model.receptive_fields.detach().cpu().numpy()
+    learned_rfs = ensembler.receptive_fields.detach().cpu().numpy().reshape(
+        true_rfs.shape[0], -1
+    )
+    for i in range(true_rfs.shape[1]):
+        for j in range(learned_rfs.shape[1]):
             plt.subplot(
-                model.receptive_fields.shape[1],
-                ensembler.receptive_fields.shape[1],
-                i * ensembler.receptive_fields.shape[1] + j + 1
+                true_rfs.shape[1],
+                learned_rfs.shape[1],
+                i * learned_rfs.shape[1] + j + 1
             )
             plt.scatter(
-                model.receptive_fields[:, i].detach().cpu().numpy(),
-                np.mod(ensembler.receptive_fields[:, j].detach().cpu().numpy(),
-                       2 * np.pi),
+                true_rfs[:, i],
+                np.mod(learned_rfs[:, j], 2 * np.pi),
                 c=ensemble_weights.argmax(1)
             )
             plt.colorbar(label='ensembles')

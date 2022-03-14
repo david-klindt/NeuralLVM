@@ -120,8 +120,9 @@ class LatentVariableModel(torch.nn.Module):
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
-            torch.randn(num_neuron, num_ensemble, latent_dim),
-            requires_grad=True
+            #torch.randn(num_neuron, num_ensemble, latent_dim),
+            torch.zeros(num_neuron, num_ensemble, latent_dim),
+            requires_grad=feature_type is not 'separate'
         )
         self.ensemble_weights = torch.nn.Parameter(
             torch.randn(num_neuron, num_ensemble),

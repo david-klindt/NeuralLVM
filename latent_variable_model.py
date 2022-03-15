@@ -313,13 +313,14 @@ class Trainer:
             z_test=None,
             num_steps=50000,
             num_log_step=1000,
-            batch_size=1024,
+            batch_size=128,
             seed=23412521,
-            learning_rate=1e-3,
+            learning_rate=3e-3,
             num_worse=5,  # if loss doesn't improve X times, stop.
             weight_kl=1e-2,
             weight_time=0,
             weight_entropy=0,
+            log_dir='model_ckpt',
     ):
         torch.manual_seed(seed)
         self.model = model
@@ -343,6 +344,7 @@ class Trainer:
         self.weight_kl = weight_kl
         self.weight_time = weight_time
         self.weight_entropy = weight_entropy
+        self.save_path = os.path.join(log_dir, 'model.pth')
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     def train(self):
@@ -383,6 +385,7 @@ class Trainer:
             running_loss += loss.item()
 
             if i > 0 and not (i % self.num_log_step):
+                self.model.eval()
                 y_, z_, mu, logvar = self.model(
                     self.data_test[self.neurons_train_ind], z=self.z_test)
                 slowness_loss = compute_slowness_loss(mu)
@@ -416,11 +419,15 @@ class Trainer:
                         print('Early stopping at iteration', i)
                         break
                 else:
+                    # if improved, reset counter and save model
                     worse = 0  # reset counter
-                    # ToDo: save best weights
-                    #self.weights = weights.detach().cpu().numpy().copy()
-                    #np.save(self.save_file, self.weights)
+                    torch.save(net.state_dict(), self.save_path)
                 running_loss = 0.0
+                self.model.train()
+
+        # after training, load best and set to eval mode.
+        model.load_state_dict(torch.load(self.save_path))
+        model.eval()
 
 
 ### Simulation Experiments ###
@@ -588,8 +595,8 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
         mode='full',
         z_train=None,
         z_test=None,
-        num_steps=20000,
-        batch_size=1024,
+        num_steps=50000,
+        batch_size=128,
         seed=923683,
         learning_rate=3e-3
     )

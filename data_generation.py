@@ -143,7 +143,7 @@ def get_data(
     y_test = data.generate_spikes(z_test, rf)
 
     # select training and test neurons
-    np.random.seed(seed)
+    np.random.seed(global_seed + index)
     neurons_train_ind = np.zeros(num_neuron, dtype=bool)
     ind = np.random.choice(num_neuron, num_neuron_train, replace=False)
     neurons_train_ind[ind] = True

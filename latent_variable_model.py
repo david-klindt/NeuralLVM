@@ -97,7 +97,8 @@ def torch_circular_gp(num_sample, num_dim, smoothness):
 class LatentVariableModel(torch.nn.Module):
     def __init__(
             self,
-            num_neuron,
+            num_neuron_inference,
+            num_neuron_prediction,
             num_hidden=256,
             num_ensemble=2,
             latent_dim=2,
@@ -110,7 +111,8 @@ class LatentVariableModel(torch.nn.Module):
             num_feature_basis=3,  # careful this scales badly with latent_dim!
     ):
         super(LatentVariableModel, self).__init__()
-        self.num_neuron = num_neuron
+        self.num_neuron_inference = num_neuron_inference
+        self.num_neuron_prediction = num_neuron_prediction
         self.num_ensemble = num_ensemble
         self.latent_dim = latent_dim
         self.nonlinearity = nonlinearity
@@ -120,28 +122,27 @@ class LatentVariableModel(torch.nn.Module):
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
-            #torch.randn(num_neuron, num_ensemble, latent_dim),
-            torch.zeros(num_neuron, num_ensemble, latent_dim),
+            torch.zeros(num_neuron_prediction, num_ensemble, latent_dim),
             requires_grad=feature_type is not 'separate'
         )
         self.ensemble_weights = torch.nn.Parameter(
-            torch.randn(num_neuron, num_ensemble),
+            torch.randn(num_neuron_prediction, num_ensemble),
             requires_grad=True
         )
         self.final_scale = torch.nn.Parameter(
-            torch.randn(num_neuron),
+            torch.randn(num_neuron_prediction),
             requires_grad=True
         )
         self.encoder = torch.nn.Sequential(
             torch.nn.Conv1d(
-                in_channels=num_neuron,
-                out_channels=num_neuron,
+                in_channels=num_neuron_inference,
+                out_channels=num_neuron_inference,
                 kernel_size=kernel_size,
                 padding='same',
-                groups=num_neuron
+                groups=num_neuron_inference
             ),
             torch.nn.Conv1d(
-                in_channels=num_neuron,
+                in_channels=num_neuron_inference,
                 out_channels=num_hidden,
                 kernel_size=1,
                 padding='same',
@@ -169,7 +170,7 @@ class LatentVariableModel(torch.nn.Module):
         )
 
         self.feature_basis = FeatureBasis(
-            num_neuron,
+            num_neuron_prediction,
             feature_type=feature_type,
             num_basis=num_feature_basis,
             latent_dim=latent_dim,
@@ -187,8 +188,8 @@ class LatentVariableModel(torch.nn.Module):
             # required input shape: B x N x L
             # if input is only N x L, prepend B dimension
             x = x[None]
-        batch_size, num_neuron, length = x.shape
-        assert num_neuron == self.num_neuron
+        batch_size, num_neuron_inference, length = x.shape
+        assert num_neuron_inference == self.num_neuron_inference
 
         x = self.encoder(x)
         mu = self.mean_head(x)  # B x E*D*V x L
@@ -226,7 +227,7 @@ class LatentVariableModel(torch.nn.Module):
 class FeatureBasis(torch.nn.Module):
     def __init__(
             self,
-            num_neuron,
+            num_neuron,  # num_neuron_prediction (no inference done here)
             feature_type='bump',  # {'bump', 'shared', 'separate'}
             num_basis=3,
             latent_dim=2,
@@ -306,6 +307,7 @@ class Trainer:
             model,
             data_train,
             data_test,
+            neurons_train_ind,  # logical indices of training neurons
             mode='full',
             z_train=None,
             z_test=None,
@@ -329,7 +331,10 @@ class Trainer:
             self.z_test = torch.Tensor(z_test).to(device)
         else:
             self.z_test = None
-        self.num_neurons = data_train.shape[0]
+        self.num_neuron_prediction = data_train.shape[0]  # all neurons
+        self.neurons_train_ind = neurons_train_ind
+        self.neurons_test_ind = np.logical_not(neurons_train_ind)
+        self.num_neuron_inference = np.sum(neurons_train_ind)
         self.batch_size = batch_size
         self.seed = seed
         self.num_steps = num_steps
@@ -354,7 +359,7 @@ class Trainer:
                 z = self.z_train[ind:ind + self.batch_size]
             else:
                 z = None
-            y_, z_, mu, logvar = self.model(y, z=z)
+            y_, z_, mu, logvar = self.model(y[self.neurons_train_ind], z=z)
             slowness_loss = compute_slowness_loss(mu)
             if self.model.normalize_encodings:  # if normalized, take out of KL.
                 mu = torch.zeros_like(logvar)
@@ -378,18 +383,22 @@ class Trainer:
             running_loss += loss.item()
 
             if i > 0 and not (i % self.num_log_step):
-                y_, z_, mu, logvar = self.model(self.data_test, z=self.z_test)
+                y_, z_, mu, logvar = self.model(
+                    self.data_test[self.neurons_train_ind], z=self.z_test)
                 slowness_loss = compute_slowness_loss(mu)
                 if self.model.normalize_encodings:
                     mu = torch.zeros_like(logvar)
                 kld_loss = compute_kld_to_normal(mu, logvar)
-                poisson_loss = compute_poisson_loss(self.data_test, y_)
+                poisson_loss = compute_poisson_loss(
+                    self.data_test[self.neurons_test_ind],
+                    y_[self.neurons_test_ind]
+                )
                 if self.mode is not 'full':
                     encoder_loss = torch.sum(
                         (angle2vector(z) - angle2vector(z_)) ** 2)
                     print('encoder_loss=', encoder_loss)
                 corrs = []
-                for j in range(y_.shape[0]):
+                for j in np.where(self.neurons_test_ind)[0]:
                     corrs.append(pearsonr(y_[j].detach().cpu().numpy(),
                                           self.data_test[j].detach().cpu().numpy())[0])
                 print('run=%s, running_loss=%.4e, negLLH=%.4e, KL_normal=%.4e, '
@@ -528,12 +537,22 @@ def test_simulation():
         fig0.show()
 
 
-def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
-                  num_sample=100000, num_test=10000, feature_type='bump'):
+def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
+                  latent_dim=2, z_smoothness=3, num_sample=100000,
+                  num_test=10000, feature_type='bump'):
+    num_neuron = num_neuron_train + num_neuron_test
+    neurons_train_ind = np.zeros(num_neuron * num_ensemble, dtype=bool)
+    ind = np.random.choice(
+        num_neuron * num_ensemble,
+        num_neuron_train * num_ensemble,
+        replace=False
+    )
+    neurons_train_ind[ind] = True
     model = StochasticNeurons(
         num_neuron, num_ensemble=num_ensemble, noise=True, latent_dim=latent_dim).to(device)
     ensembler = LatentVariableModel(
-        num_neuron * num_ensemble,
+        num_neuron_inference=num_neuron_train * num_ensemble,
+        num_neuron_prediction=num_neuron * num_ensemble,
         num_hidden=256,
         num_ensemble=num_ensemble,
         latent_dim=latent_dim,
@@ -565,6 +584,7 @@ def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
         model=ensembler,
         data_train=data_train.cpu().numpy(),
         data_test=data_test.cpu().numpy(),
+        neurons_train_ind=neurons_train_ind,
         mode='full',
         z_train=None,
         z_test=None,
@@ -580,7 +600,7 @@ def test_training(num_ensemble=3, num_neuron=50, latent_dim=2, z_smoothness=3,
 def analysis(ensembler, model, trainer, z_test):
     num_ensemble = ensembler.num_ensemble
     latent_dim = ensembler.latent_dim
-    y_, z_, mu, logvar = ensembler(trainer.data_test)
+    y_, z_, mu, logvar = ensembler(trainer.data_test[trainer.neurons_train_ind])
     z_ = z_.view(z_test.shape)
     logvar = logvar.view(z_test.shape)
 
@@ -616,10 +636,12 @@ def analysis(ensembler, model, trainer, z_test):
     plt.figure(figsize=(12, 12))
     for i in range(latent_dim * num_ensemble):
         plt.subplot(num_ensemble, latent_dim, i + 1)
-        plt.plot(trainer.data_test[i * 25, :200].detach().cpu().numpy())
-        plt.plot(y_[i * 25, :200].detach().cpu().numpy())
+        plt.plot(trainer.data_test[trainer.neurons_test_ind][
+                 i * 25, :200].detach().cpu().numpy())
+        plt.plot(y_[trainer.neurons_test_ind][
+                 i * 25, :200].detach().cpu().numpy())
         plt.legend(['true', 'predicted'])
-        plt.title('Responses')
+        plt.title('Responses (test neurons)')
     plt.tight_layout()
     plt.show()
 

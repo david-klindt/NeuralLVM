@@ -112,13 +112,14 @@ class data_generation:
         return response
 
 def get_data(
-    num_neuron,
+    num_neuron_train,
+    num_neuron_test,
     len_data_train,
     len_data_test, 
     index, 
     global_seed
 ):
-    
+    num_neuron = num_neuron_train + num_neuron_test
     data = data_generation(
         len_data=len_data_train + len_data_test,
         dim=1, 
@@ -140,5 +141,11 @@ def get_data(
     y_train = data.generate_spikes(z_train, rf)
     data.poisson_noise = False
     y_test = data.generate_spikes(z_test, rf)
+
+    # select training and test neurons
+    np.random.seed(seed)
+    neurons_train_ind = np.zeros(num_neuron, dtype=bool)
+    ind = np.random.choice(num_neuron, num_neuron_train, replace=False)
+    neurons_train_ind[ind] = True
     
-    return y_train, z_train, y_test, z_test, rf    
+    return y_train, z_train, y_test, z_test, rf, neurons_train_ind

@@ -13,7 +13,7 @@ class data_generation:
             kernel_sdev=5.0,
             kernel_scale=50.0,
             bump_placement='random',
-            peak_firing=4.0,
+            peak_firing=0.5,
             back_firing=0.005,
             tuning_width=1.2,
             snr_scale=1.0,
@@ -143,7 +143,7 @@ def get_data(
     y_test = data.generate_spikes(z_test, rf)
 
     # select training and test neurons
-    np.random.seed(seed)
+    np.random.seed(global_seed + index)
     neurons_train_ind = np.zeros(num_neuron, dtype=bool)
     ind = np.random.choice(num_neuron, num_neuron_train, replace=False)
     neurons_train_ind[ind] = True

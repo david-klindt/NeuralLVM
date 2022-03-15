@@ -353,7 +353,7 @@ class Trainer:
         for i in range(self.num_steps + 1):
             self.optimizer.zero_grad()
             np.random.seed(i + 1)
-            ind = np.random.randint(self.data_train.shape[1])
+            ind = np.random.randint(self.data_train.shape[1] - self.batch_size)
             y = self.data_train[:, ind:ind + self.batch_size]
             if self.mode is not 'full':
                 z = self.z_train[ind:ind + self.batch_size]

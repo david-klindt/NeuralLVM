@@ -422,7 +422,7 @@ class Trainer:
                 else:
                     # if improved, reset counter and save model
                     worse = 0  # reset counter
-                    torch.save(net.state_dict(), self.save_path)
+                    torch.save(model.state_dict(), self.save_path)
                 running_loss = 0.0
                 self.model.train()
 

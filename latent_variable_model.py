@@ -1,8 +1,7 @@
 import torch
 from torch.autograd import Variable
 import numpy as np
-import time
-import os
+import time, os
 from scipy.stats import pearsonr, spearmanr
 import matplotlib.pyplot as plt
 from sklearn.feature_selection import mutual_info_regression
@@ -345,6 +344,7 @@ class Trainer:
         self.weight_kl = weight_kl
         self.weight_time = weight_time
         self.weight_entropy = weight_entropy
+        os.makedirs(log_dir, exist_ok=True)
         self.save_path = os.path.join(log_dir, 'model.pth')
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -422,13 +422,13 @@ class Trainer:
                 else:
                     # if improved, reset counter and save model
                     worse = 0  # reset counter
-                    torch.save(model.state_dict(), self.save_path)
+                    torch.save(self.model.state_dict(), self.save_path)
                 running_loss = 0.0
                 self.model.train()
 
         # after training, load best and set to eval mode.
-        model.load_state_dict(torch.load(self.save_path))
-        model.eval()
+        self.model.load_state_dict(torch.load(self.save_path))
+        self.model.eval()
 
 
 ### Simulation Experiments ###

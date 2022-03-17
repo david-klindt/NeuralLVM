@@ -421,13 +421,13 @@ class Trainer:
                 else:
                     # if improved, reset counter and save model
                     worse = 0  # reset counter
-                    torch.save(net.state_dict(), self.save_path)
+                    torch.save(self.model.state_dict(), self.save_path)
                 running_loss = 0.0
                 self.model.train()
 
         # after training, load best and set to eval mode.
-        model.load_state_dict(torch.load(self.save_path))
-        model.eval()
+        self.model.load_state_dict(torch.load(self.save_path))
+        self.model.eval()
 
 
 ### Simulation Experiments ###

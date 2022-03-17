@@ -1,7 +1,7 @@
 import torch
 from torch.autograd import Variable
 import numpy as np
-import time
+import time, os
 from scipy.stats import pearsonr, spearmanr
 import matplotlib.pyplot as plt
 from sklearn.feature_selection import mutual_info_regression

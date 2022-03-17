@@ -344,8 +344,8 @@ class Trainer:
         self.weight_kl = weight_kl
         self.weight_time = weight_time
         self.weight_entropy = weight_entropy
+        os.makedirs(log_dir, exist_ok=True)
         self.save_path = os.path.join(log_dir, 'model.pth')
-        os.makedirs(self.save_path, exist_ok=True)
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     def train(self):

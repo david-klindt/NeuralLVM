@@ -125,6 +125,10 @@ class LatentVariableModel(torch.nn.Module):
             torch.zeros(num_neuron_prediction, num_ensemble, latent_dim),
             requires_grad=feature_type is not 'separate'
         )
+        self.receptive_scale = torch.nn.Parameter(
+    	    torch.zeros(num_neuron_prediction, num_ensemble),
+    	    requires_grad=feature_type is not 'separate'
+        )
         self.ensemble_weights = torch.nn.Parameter(
             torch.randn(num_neuron_prediction, num_ensemble),
             requires_grad=True
@@ -209,7 +213,8 @@ class LatentVariableModel(torch.nn.Module):
             z = reparameterize(z_angle, logvar)  # B x L x E x D
 
         # Compute responses
-        response = self.feature_basis(z, self.receptive_fields)
+        response = self.feature_basis(z, self.receptive_fields,
+                                      self.receptive_scale)
 
         ensemble_weights = torch.nn.functional.softmax(  # 1 x 1 x N x E
             self.ensemble_weights, dim=1)[None, None]
@@ -269,7 +274,7 @@ class FeatureBasis(torch.nn.Module):
                     requires_grad=True
                 )
 
-    def forward(self, z, receptive_field_centers):
+    def forward(self, z, receptive_field_centers, receptive_scale):
         # dimension names: B=Batch, L=Length, N=Neurons, H=num_basis**latent_dim
         # E=num_ensemble, D=latent_dim, V=angle as vector (2D)
 
@@ -292,6 +297,7 @@ class FeatureBasis(torch.nn.Module):
             # coeffs shape: 1 x 1 x H x {1 if shared, else N} x 1
             coeffs = self.coeffs[None, None, :, :, None]
             response = torch.sum(response * coeffs, dim=2)  # B x L x N x E
+            response = response + receptive_scale[None, None]
 
         if self.nonlinearity == 'exp':
             response = torch.exp(response)

@@ -103,7 +103,7 @@ class LatentVariableModel(torch.nn.Module):
             num_ensemble=2,
             latent_dim=2,
             seed=2093857,
-            tuning_width=2.0,
+            tuning_width=10.0,
             nonlinearity='exp',
             kernel_size=1,
             normalize_encodings=True,
@@ -122,15 +122,18 @@ class LatentVariableModel(torch.nn.Module):
 
         torch.manual_seed(seed)
         self.receptive_fields = torch.nn.Parameter(
-            torch.zeros(num_neuron_prediction, num_ensemble, latent_dim),
+            # initialize randomly in [-pi, pi]
+            - np.pi + 2 * np.pi * torch.rand(
+                num_neuron_prediction, num_ensemble, latent_dim),
             requires_grad=feature_type is not 'separate'
         )
         self.ensemble_weights = torch.nn.Parameter(
             torch.randn(num_neuron_prediction, num_ensemble),
             requires_grad=True
         )
-        self.final_scale = torch.nn.Parameter(
-            torch.randn(num_neuron_prediction),
+        self.log_final_scale = torch.nn.Parameter(
+            # intialize constant at 1
+            torch.zeros(num_neuron_prediction),
             requires_grad=True
         )
         self.encoder = torch.nn.Sequential(
@@ -215,7 +218,7 @@ class LatentVariableModel(torch.nn.Module):
             self.ensemble_weights, dim=1)[None, None]
         responses = torch.sum(  # B x L x N
             ensemble_weights * response, dim=3)
-        responses = responses * torch.exp(self.final_scale[None, None])
+        responses = responses * torch.exp(self.log_final_scale[None, None])
         responses = responses.permute(0, 2, 1)  # B x N x L
         if len(input_shape) == 2:
             # if input had no batch dimension, remove this again
@@ -231,7 +234,7 @@ class FeatureBasis(torch.nn.Module):
             feature_type='bump',  # {'bump', 'shared', 'separate'}
             num_basis=3,
             latent_dim=2,
-            tuning_width=2.0,
+            tuning_width=10.0,
             nonlinearity='exp',
             variance=None,
             seed=345978,
@@ -440,7 +443,7 @@ class StochasticNeurons(torch.nn.Module):
             latent_dim=2,
             seed=304857,
             noise=False,
-            tuning_width=2.0,
+            tuning_width=10.0,
             scale=16.0,
     ):
         super(StochasticNeurons, self).__init__()
@@ -565,7 +568,7 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
         num_ensemble=num_ensemble,
         latent_dim=latent_dim,
         seed=234587,
-        tuning_width=2.0,
+        tuning_width=10.0,
         nonlinearity='exp',
         kernel_size=9,
         feature_type=feature_type,

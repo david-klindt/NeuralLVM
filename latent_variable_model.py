@@ -355,7 +355,7 @@ class Trainer:
         loss_track = []
         for i in range(self.num_steps + 1):
             self.optimizer.zero_grad()
-            np.random.seed(i + 1)
+            np.random.seed(self.seed + i)
             ind = np.random.randint(self.data_train.shape[1] - self.batch_size)
             y = self.data_train[:, ind:ind + self.batch_size]
             if self.mode is not 'full':

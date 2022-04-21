@@ -181,3 +181,5 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
     )
     trainer.train()
     analysis(ensembler, model, trainer, z_test)
+    print("Repeat analysis with good inference:")
+    analysis(ensembler, model, trainer, z_test, do_inference=True)

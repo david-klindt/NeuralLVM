@@ -11,10 +11,19 @@ def torch_circular_gp(num_sample, num_dim, smoothness):
     return vector2angle(angle2vector(z))
 
 
-def analysis(ensembler, model, trainer, z_test):
+def analysis(ensembler, model, trainer, z_test, do_inference=False):
     num_ensemble = ensembler.num_ensemble
     latent_dim = ensembler.latent_dim
     _, y_, z_, mu, logvar = ensembler(trainer.data_test[trainer.neurons_train_ind])
+
+    if do_inference:
+        z_ = inference(ensembler,
+            trainer.data_test[trainer.neurons_train_ind],
+            trainer.data_test[trainer.neurons_test_ind],
+        )
+        _, y_, _, mu, logvar = ensembler(
+            trainer.data_test[trainer.neurons_train_ind], z=z_)
+
     z_ = z_.view(z_test.shape)
     logvar = logvar.view(z_test.shape)
 

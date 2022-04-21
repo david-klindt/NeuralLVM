@@ -132,15 +132,19 @@ class FeatureBasis(torch.nn.Module):
 
         if is_test:
             z = z.detach()
-            log_tuning_width = self.log_tuning_width.detach()
-            coeffs = self.coeffs.detach()
-            means = self.means
             variance = self.variance
+            if self.feature_type is not 'bump':
+                coeffs = self.coeffs.detach()
+                means = self.means
+            else:
+                log_tuning_width = self.log_tuning_width.detach()
         else:
-            log_tuning_width = self.log_tuning_width
-            coeffs = self.coeffs
-            means = self.means
             variance = self.variance
+            if self.feature_type is not 'bump':
+                coeffs = self.coeffs
+                means = self.means
+            else:
+                log_tuning_width = self.log_tuning_width
 
         z_vector = angle2vector(z)  # B x L x E x D x V
         rf_vector = angle2vector(receptive_field_centers)  # N x E x D x V
@@ -306,23 +310,25 @@ class LatentVariableModel(torch.nn.Module):
         # Compute responses
         response_train = self.compute_responses(
             self.ensemble_weights_train,
+            self.log_final_scale_train,
             self.feature_basis(z, self.receptive_fields_train, is_test=False),
             input_shape
         )
         response_test = self.compute_responses(
             self.ensemble_weights_test,
+            self.log_final_scale_test,
             self.feature_basis(z, self.receptive_fields_test, is_test=True),
             input_shape
         )
 
         return response_train, response_test, z, mu, logvar
 
-    def compute_responses(self, ensemble_weights, response, input_shape):
+    def compute_responses(self, ensemble_weights, log_final_scale, response, input_shape):
         ensemble_weights = torch.nn.functional.softmax(  # 1 x 1 x N x E
             ensemble_weights, dim=1)[None, None]
         responses = torch.sum(  # B x L x N
             ensemble_weights * response, dim=3)
-        responses = responses * torch.exp(self.log_final_scale[None, None])
+        responses = responses * torch.exp(log_final_scale[None, None])
         responses = responses.permute(0, 2, 1)  # B x N x L
         if len(input_shape) == 2:
             # if input had no batch dimension, remove this again

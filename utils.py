@@ -20,7 +20,7 @@ def analysis(ensembler, model, trainer, z_test):
 
     # plot ensemble_weights
     ensemble_weights = torch.nn.functional.softmax(
-        ensembler.ensemble_weights, dim=1).detach().cpu().numpy()
+        ensembler.ensemble_weights_test, dim=1).detach().cpu().numpy()
     plt.plot(ensemble_weights)
     plt.legend(np.arange(num_ensemble))
     plt.title('Ensemble Weights')
@@ -50,10 +50,8 @@ def analysis(ensembler, model, trainer, z_test):
     plt.figure(figsize=(12, 12))
     for i in range(latent_dim * num_ensemble):
         plt.subplot(num_ensemble, latent_dim, i + 1)
-        plt.plot(trainer.data_test[trainer.neurons_test_ind][
-                 i * 25, :200].detach().cpu().numpy())
-        plt.plot(y_[trainer.neurons_test_ind][
-                 i * 25, :200].detach().cpu().numpy())
+        plt.plot(trainer.data_test[trainer.neurons_test_ind][i * 25, :200].detach().cpu().numpy())
+        plt.plot(y_[i * 25, :200].detach().cpu().numpy())
         plt.legend(['true', 'predicted'])
         plt.title('Responses (test neurons)')
     plt.tight_layout()
@@ -61,8 +59,8 @@ def analysis(ensembler, model, trainer, z_test):
 
     # RF comparisons
     plt.figure(figsize=(18, 6))
-    true_rfs = model.receptive_fields.detach().cpu().numpy()
-    learned_rfs = ensembler.receptive_fields.detach().cpu().numpy().reshape(
+    true_rfs = model.receptive_fields[trainer.neurons_test_ind].detach().cpu().numpy()
+    learned_rfs = ensembler.receptive_fields_test.detach().cpu().numpy().reshape(
         true_rfs.shape[0], -1
     )
     for i in range(true_rfs.shape[1]):

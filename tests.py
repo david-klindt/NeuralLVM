@@ -1,5 +1,6 @@
 import torch
 import time
+import numpy as np
 import matplotlib.pyplot as plt
 from gtda.homology import VietorisRipsPersistence
 from gtda.plotting import plot_diagram
@@ -136,8 +137,8 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
     model = StochasticNeurons(
         num_neuron, num_ensemble=num_ensemble, noise=True, latent_dim=latent_dim).to(device)
     ensembler = LatentVariableModel(
-        num_neuron_inference=num_neuron_train * num_ensemble,
-        num_neuron_prediction=num_neuron * num_ensemble,
+        num_neuron_train=num_neuron_train * num_ensemble,
+        num_neuron_test=num_neuron_test * num_ensemble,
         num_hidden=256,
         num_ensemble=num_ensemble,
         latent_dim=latent_dim,

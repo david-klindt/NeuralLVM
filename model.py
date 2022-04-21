@@ -280,6 +280,17 @@ class LatentVariableModel(torch.nn.Module):
             variance=None,
             seed=seed,
         )
+        if feature_type.startswith('separate'):  # make second for test if no sharing
+            self.feature_basis_test = FeatureBasis(
+                num_neuron_test,
+                feature_type=feature_type,
+                num_basis=num_feature_basis,
+                latent_dim=latent_dim,
+                tuning_width=tuning_width,
+                nonlinearity=nonlinearity,
+                variance=None,
+                seed=seed,
+            )
 
     def forward(self, x, z=None):
         # dimension names: B=Batch, L=Length, N=Neurons,
@@ -316,10 +327,14 @@ class LatentVariableModel(torch.nn.Module):
             self.feature_basis(z, self.receptive_fields_train, is_test=False),
             input_shape
         )
+        if self.feature_type.startswith('separate'):
+            feature_basis_test = self.feature_basis_test
+        else:
+            feature_basis_test = self.feature_basis
         response_test = self.compute_responses(
             self.ensemble_weights_test,
             self.log_final_scale_test,
-            self.feature_basis(z, self.receptive_fields_test, is_test=True),
+            feature_basis_test(z, self.receptive_fields_test, is_test=True),
             input_shape
         )
 

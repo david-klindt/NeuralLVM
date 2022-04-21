@@ -1,5 +1,7 @@
 import torch
-import time, os
+import time
+import os
+import numpy as np
 from scipy.stats import pearsonr, spearmanr
 from model import *
 
@@ -10,7 +12,7 @@ class Trainer:
             model,
             data_train,
             data_test,
-            neurons_train_ind,  # logical indices of training neurons
+            neurons_train_ind,  # boolean indices of training neurons
             mode='full',
             z_train=None,
             z_test=None,
@@ -61,19 +63,23 @@ class Trainer:
             self.optimizer.zero_grad()
             np.random.seed(self.seed + i)
             ind = np.random.randint(self.data_train.shape[1] - self.batch_size)
-            y = self.data_train[:, ind:ind + self.batch_size]
+            y_train = self.data_train[self.neurons_train_ind][:, ind:ind + self.batch_size]
+            y_test = self.data_train[self.neurons_test_ind][:, ind:ind + self.batch_size]
             if self.mode is not 'full':
                 z = self.z_train[ind:ind + self.batch_size]
             else:
                 z = None
-            y_, z_, mu, logvar = self.model(y[self.neurons_train_ind], z=z)
+            y_train_, y_test_, z_, mu, logvar = self.model(y_train, z=z)
             slowness_loss = compute_slowness_loss(mu)
             if self.model.normalize_encodings:  # if normalized, take out of KL.
                 mu = torch.zeros_like(logvar)
             kld_loss = compute_kld_to_normal(mu, logvar)
-            poisson_loss = compute_poisson_loss(y, y_)
+            poisson_loss = (
+                compute_poisson_loss(y_train, y_train_) +
+                compute_poisson_loss(y_test, y_test_)
+            ) / 2
             ensemble_weights = torch.nn.functional.softmax(
-                self.model.ensemble_weights, dim=1)
+                self.model.ensemble_weights_train, dim=1)
             entropy = - torch.mean(
                 ensemble_weights * torch.log(ensemble_weights + 1e-6))
             if self.mode is 'encoder':
@@ -91,28 +97,27 @@ class Trainer:
 
             if i > 0 and not (i % self.num_log_step):
                 self.model.eval()
-                y_, z_, mu, logvar = self.model(
-                    self.data_test[self.neurons_train_ind], z=self.z_test)
+                y_train = self.data_test[self.neurons_train_ind]
+                y_test = self.data_test[self.neurons_test_ind]
+                y_train_, y_test_, z_, mu, logvar = self.model(y_train, z=self.z_test)
                 slowness_loss = compute_slowness_loss(mu)
                 if self.model.normalize_encodings:
                     mu = torch.zeros_like(logvar)
                 kld_loss = compute_kld_to_normal(mu, logvar)
-                poisson_loss = compute_poisson_loss(
-                    self.data_test[self.neurons_test_ind],
-                    y_[self.neurons_test_ind]
-                )
+                poisson_loss_train = compute_poisson_loss(y_train, y_train_)
+                poisson_loss_test = compute_poisson_loss(y_test, y_test_)
                 if self.mode is not 'full':
                     encoder_loss = torch.sum(
                         (angle2vector(z) - angle2vector(z_)) ** 2)
                     print('encoder_loss=', encoder_loss)
                 corrs = []
-                for j in np.where(self.neurons_test_ind)[0]:
-                    corrs.append(pearsonr(y_[j].detach().cpu().numpy(),
-                                          self.data_test[j].detach().cpu().numpy())[0])
-                print('run=%s, running_loss=%.4e, negLLH=%.4e, KL_normal=%.4e, '
+                for j in range(y_test.shape[0]):
+                    corrs.append(pearsonr(
+                        y_test[j].detach().cpu().numpy(), y_test_[j].detach().cpu().numpy())[0])
+                print('run=%s, running_loss=%.4e, negLLH_train=%.4e, negLLH_test=%.4e, KL_normal=%.4e, '
                       'Slowness_loss=%.4e, corr=%.6f, H=%.4e, time=%.2f' % (
-                    i, running_loss, poisson_loss.item(), kld_loss.item(),
-                    slowness_loss.item(), np.nanmean(corrs), entropy.item(),
+                    i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
+                    kld_loss.item(), slowness_loss.item(), np.nanmean(corrs), entropy.item(),
                     time.time() - t0
                 ))
 

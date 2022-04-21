@@ -84,7 +84,7 @@ def correlation_loss(y, y_):
 class FeatureBasis(torch.nn.Module):
     def __init__(
             self,
-            num_neuron,  # num_neuron_prediction (no inference done here)
+            num_neuron,
             feature_type='bump',  # {'bump', 'shared', 'separate'}
             num_basis=3,
             latent_dim=2,
@@ -126,9 +126,21 @@ class FeatureBasis(torch.nn.Module):
                     requires_grad=True
                 )
 
-    def forward(self, z, receptive_field_centers):
+    def forward(self, z, receptive_field_centers, is_test=False):
         # dimension names: B=Batch, L=Length, N=Neurons, H=num_basis**latent_dim
         # E=num_ensemble, D=latent_dim, V=angle as vector (2D)
+
+        if is_test:
+            z = z.detach()
+            log_tuning_width = self.log_tuning_width.detach()
+            coeffs = self.coeffs.detach()
+            means = self.means
+            variance = self.variance
+        else:
+            log_tuning_width = self.log_tuning_width
+            coeffs = self.coeffs
+            means = self.means
+            variance = self.variance
 
         z_vector = angle2vector(z)  # B x L x E x D x V
         rf_vector = angle2vector(receptive_field_centers)  # N x E x D x V
@@ -138,16 +150,16 @@ class FeatureBasis(torch.nn.Module):
             rf_vector = rf_vector[None, None]  # 1 x 1 x N x E x D x V
             dist = torch.sum(  # B x L x N x E
                 (z_vector - rf_vector) ** 2, dim=(4, 5))
-            response = - dist / torch.exp(self.log_tuning_width)
+            response = - dist / torch.exp(log_tuning_width)
         else:
-            means = angle2vector(self.means[:, None, None])  # H x 1 x 1 x D x V
+            means = angle2vector(means[:, None, None])  # H x 1 x 1 x D x V
             means_per_neuron = means - rf_vector[None]  # H x N x E x D x V
             # make dist: B x L x H x N x E x D x V
             dist = z_vector[:, :, None, None] - means_per_neuron[None, None]
             dist = torch.sum(dist ** 2, dim=(5, 6))  # B x L x H x N x E
-            response = torch.exp(- dist / self.variance)
+            response = torch.exp(- dist / variance)
             # coeffs shape: 1 x 1 x H x {1 if shared, else N} x 1
-            coeffs = self.coeffs[None, None, :, :, None]
+            coeffs = coeffs[None, None, :, :, None]
             response = torch.sum(response * coeffs, dim=2)  # B x L x N x E
 
         if self.nonlinearity == 'exp':
@@ -161,8 +173,8 @@ class FeatureBasis(torch.nn.Module):
 class LatentVariableModel(torch.nn.Module):
     def __init__(
             self,
-            num_neuron_inference,
-            num_neuron_prediction,
+            num_neuron_train,
+            num_neuron_test,
             num_hidden=256,
             num_ensemble=2,
             latent_dim=2,
@@ -175,8 +187,9 @@ class LatentVariableModel(torch.nn.Module):
             num_feature_basis=3,  # careful this scales badly with latent_dim!
     ):
         super(LatentVariableModel, self).__init__()
-        self.num_neuron_inference = num_neuron_inference
-        self.num_neuron_prediction = num_neuron_prediction
+        self.num_neuron_train = num_neuron_train  # used to infer latents and learn shared features
+        self.num_neuron_test = num_neuron_test  # only used for testing, learn their RFs given fixed feature basis and
+        # inferred latents.
         self.num_ensemble = num_ensemble
         self.latent_dim = latent_dim
         self.nonlinearity = nonlinearity
@@ -185,31 +198,46 @@ class LatentVariableModel(torch.nn.Module):
         self.feature_type = feature_type
 
         torch.manual_seed(seed)
-        self.receptive_fields = torch.nn.Parameter(
+        self.receptive_fields_train = torch.nn.Parameter(
             # initialize randomly in [-pi, pi]
             - np.pi + 2 * np.pi * torch.rand(
-                num_neuron_prediction, num_ensemble, latent_dim),
+                num_neuron_train, num_ensemble, latent_dim),
             requires_grad=feature_type is not 'separate'
         )
-        self.ensemble_weights = torch.nn.Parameter(
-            torch.randn(num_neuron_prediction, num_ensemble),
+        self.receptive_fields_test = torch.nn.Parameter(
+            # initialize randomly in [-pi, pi]
+            - np.pi + 2 * np.pi * torch.rand(
+                num_neuron_test, num_ensemble, latent_dim),
+            requires_grad=feature_type is not 'separate'
+        )
+        self.ensemble_weights_train = torch.nn.Parameter(
+            torch.randn(num_neuron_train, num_ensemble),
             requires_grad=True
         )
-        self.log_final_scale = torch.nn.Parameter(
+        self.ensemble_weights_test = torch.nn.Parameter(
+            torch.randn(num_neuron_test, num_ensemble),
+            requires_grad=True
+        )
+        self.log_final_scale_train = torch.nn.Parameter(
             # intialize constant at 1
-            torch.zeros(num_neuron_prediction),
+            torch.zeros(num_neuron_train),
+            requires_grad=True
+        )
+        self.log_final_scale_test = torch.nn.Parameter(
+            # intialize constant at 1
+            torch.zeros(num_neuron_test),
             requires_grad=True
         )
         self.encoder = torch.nn.Sequential(
             torch.nn.Conv1d(
-                in_channels=num_neuron_inference,
-                out_channels=num_neuron_inference,
+                in_channels=num_neuron_train,
+                out_channels=num_neuron_train,
                 kernel_size=kernel_size,
                 padding='same',
-                groups=num_neuron_inference
+                groups=num_neuron_train
             ),
             torch.nn.Conv1d(
-                in_channels=num_neuron_inference,
+                in_channels=num_neuron_train,
                 out_channels=num_hidden,
                 kernel_size=1,
                 padding='same',
@@ -237,7 +265,7 @@ class LatentVariableModel(torch.nn.Module):
         )
 
         self.feature_basis = FeatureBasis(
-            num_neuron_prediction,
+            num_neuron_train,
             feature_type=feature_type,
             num_basis=num_feature_basis,
             latent_dim=latent_dim,
@@ -255,8 +283,8 @@ class LatentVariableModel(torch.nn.Module):
             # required input shape: B x N x L
             # if input is only N x L, prepend B dimension
             x = x[None]
-        batch_size, num_neuron_inference, length = x.shape
-        assert num_neuron_inference == self.num_neuron_inference
+        batch_size, num_neuron_train, length = x.shape
+        assert num_neuron_train == self.num_neuron_train
 
         x = self.encoder(x)
         mu = self.mean_head(x)  # B x E*D*V x L
@@ -276,10 +304,22 @@ class LatentVariableModel(torch.nn.Module):
             z = reparameterize(z_angle, logvar)  # B x L x E x D
 
         # Compute responses
-        response = self.feature_basis(z, self.receptive_fields)
+        response_train = self.compute_responses(
+            self.ensemble_weights_train,
+            self.feature_basis(z, self.receptive_fields_train, is_test=False),
+            input_shape
+        )
+        response_test = self.compute_responses(
+            self.ensemble_weights_test,
+            self.feature_basis(z, self.receptive_fields_test, is_test=True),
+            input_shape
+        )
 
+        return response_train, response_test, z, mu, logvar
+
+    def compute_responses(self, ensemble_weights, response, input_shape):
         ensemble_weights = torch.nn.functional.softmax(  # 1 x 1 x N x E
-            self.ensemble_weights, dim=1)[None, None]
+            ensemble_weights, dim=1)[None, None]
         responses = torch.sum(  # B x L x N
             ensemble_weights * response, dim=3)
         responses = responses * torch.exp(self.log_final_scale[None, None])
@@ -287,5 +327,4 @@ class LatentVariableModel(torch.nn.Module):
         if len(input_shape) == 2:
             # if input had no batch dimension, remove this again
             responses = responses[0]
-
-        return responses, z, mu, logvar
+        return responses

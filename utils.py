@@ -1,5 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.feature_selection import mutual_info_regression
 from model import *
 
@@ -13,7 +14,7 @@ def torch_circular_gp(num_sample, num_dim, smoothness):
 def analysis(ensembler, model, trainer, z_test):
     num_ensemble = ensembler.num_ensemble
     latent_dim = ensembler.latent_dim
-    y_, z_, mu, logvar = ensembler(trainer.data_test[trainer.neurons_train_ind])
+    _, y_, z_, mu, logvar = ensembler(trainer.data_test[trainer.neurons_train_ind])
     z_ = z_.view(z_test.shape)
     logvar = logvar.view(z_test.shape)
 

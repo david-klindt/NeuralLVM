@@ -98,9 +98,10 @@ class FeatureBasis(torch.nn.Module):
         self.latent_dim = latent_dim
         self.tuning_width = tuning_width  # of single bump
         self.nonlinearity = nonlinearity
-        if variance is None:
-            variance = 4 * np.pi / num_basis
-        self.variance = variance  # of feature basis
+        if variance is None:  # of feature basis
+            variance = torch.ones(1) * 4 * np.pi / num_basis
+        self.variance = torch.nn.Parameter(
+            variance, requires_grad=feature_type.endswith('flex'))
         torch.manual_seed(seed)
 
         if feature_type == 'bump':
@@ -114,13 +115,14 @@ class FeatureBasis(torch.nn.Module):
             means = torch.meshgrid([means for _ in range(latent_dim)])
             means = torch.stack(means, 0).view(latent_dim, -1).T
             # shape: num_basis**latent_dim x latent_dim
-            self.means = torch.nn.Parameter(means, requires_grad=False)
-            if feature_type == 'shared':
+            self.means = torch.nn.Parameter(
+                means, requires_grad=feature_type.endswith('flex'))
+            if feature_type.startswith('shared'):
                 self.coeffs = torch.nn.Parameter(
                     torch.randn(num_basis ** latent_dim, 1),
                     requires_grad=True
                 )
-            elif feature_type == 'separate':
+            elif feature_type.startswith('separate'):
                 self.coeffs = torch.nn.Parameter(
                     torch.randn(num_basis ** latent_dim, num_neuron),
                     requires_grad=True
@@ -132,10 +134,10 @@ class FeatureBasis(torch.nn.Module):
 
         if is_test:
             z = z.detach()
-            variance = self.variance
+            variance = self.variance.detach()
             if self.feature_type is not 'bump':
                 coeffs = self.coeffs.detach()
-                means = self.means
+                means = self.means.detach()
             else:
                 log_tuning_width = self.log_tuning_width.detach()
         else:
@@ -206,13 +208,13 @@ class LatentVariableModel(torch.nn.Module):
             # initialize randomly in [-pi, pi]
             - np.pi + 2 * np.pi * torch.rand(
                 num_neuron_train, num_ensemble, latent_dim),
-            requires_grad=feature_type is not 'separate'
+            requires_grad=not(feature_type.startswith('separate'))
         )
         self.receptive_fields_test = torch.nn.Parameter(
             # initialize randomly in [-pi, pi]
             - np.pi + 2 * np.pi * torch.rand(
                 num_neuron_test, num_ensemble, latent_dim),
-            requires_grad=feature_type is not 'separate'
+            requires_grad=not(feature_type.startswith('separate'))
         )
         self.ensemble_weights_train = torch.nn.Parameter(
             torch.randn(num_neuron_train, num_ensemble),

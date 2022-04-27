@@ -1,20 +1,34 @@
-#%% load some libraries
-
+import functools
+from absl import app
+from absl import flags
 import numpy as np
 import mgplvm as mgp
 from data import get_data
 import matplotlib.pyplot as plt
 import torch
 import pickle
+import os
+import logging
 
-#%% evaluate model
+FLAGS = flags.FLAGS
 
-# set some parameters
-global_seed = np.random.choice(np.arange(100000000))
+flags.DEFINE_integer("n_z", 20, "number of inducing points")
+flags.DEFINE_integer("random_seed", 100_000_000, "random seed")
+flags.DEFINE_string("model_type", "cosyne",
+                    "`orig` (Gaussian + uniform) or `cosyne` (Poisson + AR)")
+flags.DEFINE_string("results_dir", "/scratches/cblgpu03/tck29/neurallvm",
+                    "results directory")
+flags.DEFINE_string("device", "cuda", "device: cuda or cpu")
+
 d = 1  #model dimensionality
 n_samples = 1  #number of trials
-n_z = 20  #number of inducing points
-type_ = 'cosyne'  #orig (Gaussian+uniform) or cosyne (Poisson+AR)
+reps = 5
+Ntrains = [20, 50, 100, 200]
+Ttrains = [50, 100, 200, 500]
+
+
+def add_suffix(rep, num_neuron_train, len_data_train, s):
+    return f"{s}_{rep}_N{num_neuron_train}_T{len_data_train}"
 
 
 def eval_lats(pred, target):
@@ -26,36 +40,31 @@ def eval_lats(pred, target):
     return np.amin(errs)
 
 
-reps = 5
-Ntrains = [20, 50, 100, 200]
-Ttrains = [50, 100, 200, 500]
-
 lat_perfs = np.zeros((reps, len(Ntrains), len(Ttrains)))
 pred_perfs = np.zeros((reps, len(Ntrains), len(Ttrains)))
 
-for rep in range(reps):
+num_neuron_test = 80
+len_data_test = 500
+
+
+def run(rep):
     index = rep
     for iN, num_neuron_train in enumerate(Ntrains):
         for iT, len_data_train in enumerate(Ttrains):
-
-            #%% set a bunch of parameters and generate data
-
-            num_neuron_test = 80
-            len_data_test = 500
+            suffix = functools.partial(add_suffix, rep, num_neuron_train,
+                                       len_data_train)
             num_neuron_tot = num_neuron_train + num_neuron_test
             len_data_tot = len_data_train + len_data_test
 
-            device = torch.device("cuda")
-
             y_train, z_train, y_test, z_test, rf, neurons_train_ind = get_data(
                 num_neuron_train, num_neuron_test, len_data_train,
-                len_data_test, index, global_seed)
+                len_data_test, index, FLAGS.random_seed)
 
-            print('y_train:', y_train.shape)  #Ntot x Ttrain
-            print('z_train:', z_train.shape)  #d x Ttrain
-            print('y_test:', y_test.shape)  #Ntot x Ttest
-            print('z_test:', z_test.shape)  #d x Ttest
-            print('N_train:', num_neuron_train)
+            logging.info(f"y_train: {y_train.shape}")  #Ntot x Ttrain
+            logging.info(f"z_train: {z_train.shape}")  #d x Ttrain
+            logging.info(f"y_test: {y_test.shape}")  #Ntot x Ttest
+            logging.info(f"z_test:' {z_test.shape}")  #d x Ttest
+            logging.info(f"N_train: {num_neuron_train}")
 
             ## plot data
             plt.figure()
@@ -66,12 +75,12 @@ for rep in range(reps):
             plt.ylim(0, num_neuron_tot)
             plt.xticks([])
             plt.yticks([])
-            plt.show()
+            plt.savefig(suffix(f"{FLAGS.results_dir}/raw_data") + ".png")
 
             #%% construct mgplvm model
             torch.cuda.empty_cache()
 
-            if type_ == 'orig':  #Gaussian noise and uniform prior
+            if FLAGS.model_type == 'orig':  #Gaussian noise and uniform prior
                 Y1 = np.sqrt(y_train)  #sqrt transform
                 mu, sig = np.mean(Y1, axis=1,
                                   keepdims=True), np.std(Y1,
@@ -91,7 +100,7 @@ for rep in range(reps):
             Y = Y[None, ...]
             Y1 = Y1[None, ...]
             z_tot = np.concatenate([z_train, z_test], axis=0)
-            data = torch.tensor(Y).to(device)
+            data = torch.tensor(Y).to(FLAGS.device)
             n_samples, n, m = Y.shape
 
             manif = mgp.manifolds.Torus(m, d)  # latent distribution manifold
@@ -110,7 +119,7 @@ for rep in range(reps):
                 ell=np.ones(n) * 1,
             )  # Use an exponential quadratic (RBF) kernel
 
-            if type_ == 'orig':  #Gaussian noise and uniform prior
+            if FLAGS.model_type == 'orig':  #Gaussian noise and uniform prior
                 lik = mgp.likelihoods.Gaussian(n, Y=Y1,
                                                d=d)  # Gaussian likelihood
                 lprior = mgp.lpriors.Uniform(
@@ -123,7 +132,7 @@ for rep in range(reps):
                                               brownian_eta=torch.ones(d) *
                                               np.pi**2)
 
-            z = manif.inducing_points(n, n_z)  # build inducing points
+            z = manif.inducing_points(n, FLAGS.n_z)  # build inducing points
             model = mgp.models.SvgpLvm(n,
                                        m,
                                        n_samples,
@@ -132,11 +141,8 @@ for rep in range(reps):
                                        lik,
                                        lat_dist,
                                        lprior,
-                                       whiten=True).to(
-                                           device)  #build full model
-
-            # %% training
-
+                                       whiten=True)
+            model = model.to(FLAGS.device)  #build full model
 
             def cb(mod, i, loss):
                 """here we construct an (optional) function that helps us keep track of the training"""
@@ -151,7 +157,8 @@ for rep in range(reps):
                     plt.ylabel("model latents")
                     plt.scatter(z_tot[:, 0], X[:, 0], color='k')
                     plt.title('iter = ' + str(i))
-                    plt.show()
+                    plt.savefig(
+                        suffix(f"{FLAGS.results_dir}/latents{i}") + ".png")
 
             train_ps = mgp.crossval.training_params(max_steps=2000,
                                                     n_mc=50,
@@ -171,7 +178,6 @@ for rep in range(reps):
                                                  train_ps)  #train model
 
             # %% testing
-
 
             def mask_Ts(grad):
                 ''' used to 'mask' some gradients for crossvalidation'''
@@ -211,8 +217,8 @@ for rep in range(reps):
                 pearsonr(Ypred[n, :], Ytarget[n, :])[0]
                 for n in range(Ypred.shape[0])
             ])  #mean pearsonr across neurons
-            print('\n', num_neuron_train, len_data_train)
-            print('result:', mean_corr)
+            logging.info(num_neuron_train, len_data_train)
+            logging.info(f"result: {mean_corr}")
 
             pred = model.lat_dist.prms[0].detach().cpu().numpy()[0, ...]
             lat_err = eval_lats(pred[~Ttest, 0], z_tot[~Ttest, 0])
@@ -221,13 +227,20 @@ for rep in range(reps):
             lat_perfs[rep, iN, iT] = lat_err
             pred_perfs[rep, iN, iT] = mean_corr
 
-            pickle.dump([Ntrains, Ttrains, lat_perfs, pred_perfs],
-                        open('mgplvm_res_' + type_ + '.p', 'wb'))
+            filename = suffix(
+                f"{FLAGS.results_dir}/mgplvm_res_{FLAGS.model_type}")
+            with open(f"{filename}_params.p", "wb") as f:
+                pickle.dump([Ntrains, Ttrains, lat_perfs, pred_perfs], f)
 
-            pickle.dump([pred, Ypred, Y, z_tot, neurons_train_ind],
-                        open(
-                            'data/mgplvm_res_' + type_ + str(rep) + '_N' +
-                            str(num_neuron_train) + '_T' +
-                            str(len_data_train) + '.p', 'wb'))
+            with open(f"{filename}.p", "wb") as f:
+                pickle.dump([pred, Ypred, Y, z_tot, neurons_train_ind], f)
 
-# %%
+
+def main(_):
+    os.makedirs(FLAGS.results_dir, exist_ok=True)
+    for rep in range(reps):
+        run(rep)
+
+
+if __name__ == '__main__':
+    app.run(main)

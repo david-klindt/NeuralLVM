@@ -24,7 +24,7 @@ def eval_lats(pred, target):
             errs[i, i_s] = np.mean(np.arccos(np.cos(newpred-target)))
     return np.amin(errs)
 
-reps = 2
+reps = 5
 Ntrains = [20, 50, 100, 200]
 Ttrains = [50, 100, 200, 500]
 
@@ -162,7 +162,7 @@ for rep in range(reps):
             Ytarget = y_test[~neurons_train_ind, :] #target
 
             from scipy.stats import pearsonr
-            mean_corr = np.mean([pearsonr(Ypred[n, :], Ytarget[n, :])[0] for n in range(Ypred.shape[0])]) #mean pearsonr across neurons
+            mean_corr = np.nanmean([pearsonr(Ypred[n, :], Ytarget[n, :])[0] for n in range(Ypred.shape[0])]) #mean pearsonr across neurons
             print('\n', num_neuron_train, len_data_train)
             print('result:', mean_corr)
 
@@ -174,5 +174,7 @@ for rep in range(reps):
             pred_perfs[rep, iN, iT] = mean_corr
 
             pickle.dump([Ntrains, Ttrains, lat_perfs, pred_perfs], open('mgplvm_res_'+type_+'.p', 'wb'))
+
+            pickle.dump([pred, Ypred, Y, z_tot, neurons_train_ind], open('data/mgplvm_res_'+type_+str(rep)+'_N'+str(num_neuron_train)+'_T'+str(len_data_train)+'.p', 'wb'))
 
 # %%

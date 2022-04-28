@@ -157,7 +157,7 @@ def run(rep):
         train_ps = mgp.crossval.crossval.update_params(train_ps,
                                                         batch_pool=Ttrain,
                                                         prior_m=len(Ttrain),
-                                                        neuron_idxs=np.where(neurons_train_ind))
+                                                        neuron_idxs=np.where(neurons_train_ind)[0])
 
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps)  #train model
@@ -167,13 +167,13 @@ def run(rep):
 
         for p in model.lprior.parameters():
             p.requires_grad = False
-        train_ps = mgp.crossval.crossval.update_params(train_ps,
+        train_ps1 = mgp.crossval.crossval.update_params(train_ps,
                                                         max_steps=1000,
-                                                        neuron_idxs=np.where(~neurons_train_ind),
+                                                        neuron_idxs=np.where(~neurons_train_ind)[0],
                                                         mask_Ts = (lambda x: x*0))
 
         mod_train = mgp.crossval.train_model(model, data,
-                                                train_ps)  #train model
+                                                train_ps1)  #train model
 
         # %% testing
 
@@ -191,7 +191,7 @@ def run(rep):
         #update what we're masking
         train_ps2 = mgp.crossval.crossval.update_params(
             train_ps,
-            neuron_idxs=np.where(neurons_train_ind),
+            neuron_idxs=np.where(neurons_train_ind)[0],
             mask_Ts=mask_Ts,
             prior_m=None,
             batch_pool=None,
@@ -202,24 +202,23 @@ def run(rep):
 
         # %% testing!
 
-        latents = model.lat_dist.prms[0].detach()[:, Ttest,
-                                                    ...]  #test latents
+        latents = model.lat_dist.prms[0].detach()[:, Ttest, ...]  #test latents
         query = latents.transpose(-1, -2)  #(ntrial, d, m)
         Ypred = model.svgp.sample(query, n_mc=500, noise=False)
-        Ypred = Ypred.mean(0).cpu().numpy()[
-            0, ~neurons_train_ind, :]  #(ntrial x N2 x T2)
+        Ypred = Ypred.mean(0).cpu().numpy()[0, ...]  
+        Ypred_sub = Ypred[~neurons_train_ind, :][:, Ttest]#(ntrial x N2 x T2)
         Ytarget = y_test[~neurons_train_ind, :]  #target
 
         mean_corr = np.nanmean([
-            pearsonr(Ypred[n, :], Ytarget[n, :])[0]
-            for n in range(Ypred.shape[0])
+            pearsonr(Ypred_sub[n, :], Ytarget[n, :])[0]
+            for n in range(Ypred_sub.shape[0])
         ])  #mean pearsonr across neurons
         print(num_neuron_train, len_data_train)
         #logging.info(f"result: {mean_corr}")
         print('result:', mean_corr)
 
         z_pred = model.lat_dist.prms[0].detach().cpu().numpy()[0, ...]
-        lat_err = eval_lats(z_pred[~Ttest, 0], z_tot[~Ttest, 0])
+        lat_err = eval_lats(z_pred[Ttest, 0], z_tot[Ttest, 0])
         print('result:', lat_err)
         print('elapsed time:', time.time()-tic)
 

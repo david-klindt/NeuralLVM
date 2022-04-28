@@ -248,6 +248,8 @@ def run(rep):
                 'z_train': z_train, 'z_test': z_test, 'y_pred': Ypred, 'z_pred': z_pred}
         with open(f"{filename}.p", "wb") as f:
             pickle.dump(data, f)
+        with open(f"{filename}_pt.p", "wb") as f:
+            pickle.dump(model, f)
 
 
 def main(_):

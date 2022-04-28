@@ -1,5 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from typing import Dict, Callable
+from collections import OrderedDict
+import torch
 
 def add_suffix(rep, num_neuron_train, len_data_train, s):
     return f"{s}_{rep}_N{num_neuron_train}_T{len_data_train}"
@@ -44,3 +47,5 @@ def gen_cb(z_tot, fname):
             plt.savefig(fname)
             plt.close()
     return cb
+
+            

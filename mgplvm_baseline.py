@@ -17,13 +17,15 @@ from scipy.stats import pearsonr
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_integer("n_z", 12, "number of inducing points")
+flags.DEFINE_integer("n_z", 16, "number of inducing points")
 flags.DEFINE_integer("random_seed", 100_000_000, "random seed")
 flags.DEFINE_string("model_type", "cosyne",
                     "`orig` (Gaussian + uniform) or `cosyne` (Poisson + AR)")
 flags.DEFINE_string("results_dir", "./results/",
                     "results directory")
 flags.DEFINE_string("device", "cuda", "device: cuda or cpu")
+flags.DEFINE_integer("max_iter", 2000, "training iterations")
+flags.DEFINE_integer("n_mc", 20, "MC samples")
 
 #%%
 
@@ -91,12 +93,17 @@ def run(rep):
         #wrangle the data into the right form and put on gpu
         Ttrain, Ttest = np.arange(len_data_train), np.arange(
             len_data_train, len_data_train + len_data_test)
+
         Y = np.concatenate([Y1, Y2], axis=1)
         Y = Y[None, ...]
         Y1 = Y1[None, ...]
         z_tot = np.concatenate([z_train, z_test], axis=0)
         data = torch.tensor(Y).to(FLAGS.device)
         n_samples, n, m = Y.shape
+
+        #print(Ttrain)
+        #print(Ttest)
+        print(Y.shape)
 
         manif = mgp.manifolds.Torus(m, d)  # latent distribution manifold
         lat_dist = mgp.rdist.ReLie(
@@ -144,8 +151,8 @@ def run(rep):
         model = model.to(FLAGS.device)  #build full model
 
         cb = gen_cb(z_tot, suffix(f"{FLAGS.results_dir}/latents") + ".png")
-        train_ps = mgp.crossval.training_params(max_steps=2000,
-                                                n_mc=50,
+        train_ps = mgp.crossval.training_params(max_steps=int(round(FLAGS.max_iter)),
+                                                n_mc=FLAGS.n_mc,
                                                 lrate=5e-2,
                                                 burnin=200,
                                                 print_every=100,
@@ -158,6 +165,7 @@ def run(rep):
                                                         batch_pool=Ttrain,
                                                         prior_m=len(Ttrain),
                                                         neuron_idxs=np.where(neurons_train_ind)[0])
+        #print(train_ps)
 
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps)  #train model
@@ -167,11 +175,14 @@ def run(rep):
 
         for p in model.lprior.parameters():
             p.requires_grad = False
-        train_ps1 = mgp.crossval.crossval.update_params(train_ps,
-                                                        max_steps=1000,
-                                                        neuron_idxs=np.where(~neurons_train_ind)[0],
-                                                        mask_Ts = (lambda x: x*0))
 
+        train_ps1 = mgp.crossval.crossval.update_params(train_ps,
+                                                        max_steps=int(round(FLAGS.max_iter/2)),
+                                                        neuron_idxs=np.where(~neurons_train_ind)[0],
+                                                        mask_Ts = (lambda x: x*0)
+                                                        )
+
+        #print(train_ps1)
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps1)  #train model
 
@@ -195,14 +206,17 @@ def run(rep):
             mask_Ts=mask_Ts,
             prior_m=None,
             batch_pool=None,
-            max_steps=1000)
+            max_steps=int(round(FLAGS.max_iter/2)))
+        #print(train_ps2)
+        #for p in model.lat_dist.parameters():
+        #    print(p)
 
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps2)  #train
 
         # %% testing!
 
-        latents = model.lat_dist.prms[0].detach()[:, Ttest, ...]  #test latents
+        latents = model.lat_dist.prms[0].detach()[:, ...]  #test latents
         query = latents.transpose(-1, -2)  #(ntrial, d, m)
         Ypred = model.svgp.sample(query, n_mc=500, noise=False)
         Ypred = Ypred.mean(0).cpu().numpy()[0, ...]  

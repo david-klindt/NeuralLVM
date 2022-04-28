@@ -23,21 +23,24 @@ def plot_data(y_train, len_data_train, num_neuron_tot, fname):
     plt.xticks([])
     plt.yticks([])
     plt.savefig(fname)
-
-def cb(mod, i, loss):
-    """here we construct an (optional) function that helps us keep track of the training"""
-    if i in [0, 50, 100, 150, 300, 500, 1000, 1500,
-                1999]:  #iterations to plot
-        X = mod.lat_dist.prms[0].detach().cpu().numpy()[0, ...]
-        X = X % (2 * np.pi)
-        plt.figure(figsize=(4, 4))
-        plt.xlim(0, 2 * np.pi)
-        plt.ylim(0, 2 * np.pi)
-        plt.xlabel("true latents")
-        plt.ylabel("model latents")
-        plt.scatter(z_tot[:, 0], X[:, 0], color='k')
-        plt.title('iter = ' + str(i))
-        plt.savefig(
-            suffix(f"{FLAGS.results_dir}/latents{i}") + ".png")
+    plt.close()
 
 
+def gen_cb(z_tot, fname):
+
+    def cb(mod, i, loss):
+        """here we construct an (optional) function that helps us keep track of the training"""
+        if i in [0, 50, 100, 150, 300, 500, 1000, 1500,
+                    1999]:  #iterations to plot
+            X = mod.lat_dist.prms[0].detach().cpu().numpy()[0, ...]
+            X = X % (2 * np.pi)
+            plt.figure(figsize=(4, 4))
+            plt.xlim(0, 2 * np.pi)
+            plt.ylim(0, 2 * np.pi)
+            plt.xlabel("true latents")
+            plt.ylabel("model latents")
+            plt.scatter(z_tot[:, 0], X[:, 0], color='k')
+            plt.title('iter = ' + str(i))
+            plt.savefig(fname)
+            plt.close()
+    return cb

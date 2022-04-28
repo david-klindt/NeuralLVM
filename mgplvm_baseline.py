@@ -11,24 +11,26 @@ import torch
 import pickle
 import os
 import logging
-from mgplvm_utils import add_suffix, eval_lats, plot_data, cb
+import time
+from mgplvm_utils import add_suffix, eval_lats, plot_data, gen_cb
 from scipy.stats import pearsonr
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_integer("n_z", 20, "number of inducing points")
+flags.DEFINE_integer("n_z", 12, "number of inducing points")
 flags.DEFINE_integer("random_seed", 100_000_000, "random seed")
 flags.DEFINE_string("model_type", "cosyne",
                     "`orig` (Gaussian + uniform) or `cosyne` (Poisson + AR)")
-flags.DEFINE_string("results_dir", "/scratches/cblgpu03/tck29/neurallvm",
+flags.DEFINE_string("results_dir", "./results/",
                     "results directory")
 flags.DEFINE_string("device", "cuda", "device: cuda or cpu")
 
 #%%
 
+
 d = 1  #model dimensionality
 n_samples = 1  #number of trials
-reps = 16
+reps = 20 #number of repetitions
 
 Ntrains =  [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
 Ttrains = [75, 100, 150, 200, 300, 400, 500, 750, 1000, 2500]
@@ -46,12 +48,16 @@ pred_perfs = np.zeros((reps, len(Ntrains)))
 def run(rep):
     index = rep
     for iparam in range(len(Ntrains)):
+        tic = time.time()
+
         num_neuron_train, len_data_train = Ntrains[iparam], Ttrains[iparam]
         suffix = functools.partial(add_suffix, rep, num_neuron_train,
                                     len_data_train)
         num_neuron_tot = num_neuron_train + num_neuron_test
         len_data_tot = len_data_train + len_data_test
 
+        np.random.seed(FLAGS.random_seed+index)
+        torch.manual_seed(FLAGS.random_seed+index)
         y_train, z_train, y_test, z_test, rf, neurons_train_ind = get_data(
             num_neuron_train, num_neuron_test, len_data_train,
             len_data_test, index, FLAGS.random_seed)
@@ -137,6 +143,7 @@ def run(rep):
                                     whiten=True)
         model = model.to(FLAGS.device)  #build full model
 
+        cb = gen_cb(z_tot, suffix(f"{FLAGS.results_dir}/latents") + ".png")
         train_ps = mgp.crossval.training_params(max_steps=2000,
                                                 n_mc=50,
                                                 lrate=5e-2,
@@ -149,7 +156,21 @@ def run(rep):
         #this information is stored in the training parameters
         train_ps = mgp.crossval.crossval.update_params(train_ps,
                                                         batch_pool=Ttrain,
-                                                        prior_m=len(Ttrain))
+                                                        prior_m=len(Ttrain),
+                                                        neuron_idxs=np.where(neurons_train_ind))
+
+        mod_train = mgp.crossval.train_model(model, data,
+                                                train_ps)  #train model
+
+        
+        # %% now get tuning curves for the test neurons
+
+        for p in model.lprior.parameters():
+            p.requires_grad = False
+        train_ps = mgp.crossval.crossval.update_params(train_ps,
+                                                        max_steps=1000,
+                                                        neuron_idxs=np.where(~neurons_train_ind),
+                                                        mask_Ts = (lambda x: x*0))
 
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps)  #train model
@@ -193,12 +214,14 @@ def run(rep):
             pearsonr(Ypred[n, :], Ytarget[n, :])[0]
             for n in range(Ypred.shape[0])
         ])  #mean pearsonr across neurons
-        logging.info(num_neuron_train, len_data_train)
-        logging.info(f"result: {mean_corr}")
+        print(num_neuron_train, len_data_train)
+        #logging.info(f"result: {mean_corr}")
+        print('result:', mean_corr)
 
         z_pred = model.lat_dist.prms[0].detach().cpu().numpy()[0, ...]
         lat_err = eval_lats(z_pred[~Ttest, 0], z_tot[~Ttest, 0])
         print('result:', lat_err)
+        print('elapsed time:', time.time()-tic)
 
         lat_perfs[rep, iparam] = lat_err
         pred_perfs[rep, iparam] = mean_corr

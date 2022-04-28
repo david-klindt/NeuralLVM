@@ -29,7 +29,6 @@ flags.DEFINE_integer("n_mc", 20, "MC samples")
 
 #%%
 
-
 d = 1  #model dimensionality
 n_samples = 1  #number of trials
 reps = 20 #number of repetitions
@@ -150,7 +149,7 @@ def run(rep):
                                     whiten=True)
         model = model.to(FLAGS.device)  #build full model
 
-        cb = gen_cb(z_tot, suffix(f"{FLAGS.results_dir}/latents") + ".png")
+        cb = gen_cb(z_tot, suffix(f"{FLAGS.results_dir}/latents") + '_' + FLAGS.model_type + ".png")
         train_ps = mgp.crossval.training_params(max_steps=int(round(FLAGS.max_iter)),
                                                 n_mc=FLAGS.n_mc,
                                                 lrate=5e-2,
@@ -221,7 +220,14 @@ def run(rep):
         Ypred = model.svgp.sample(query, n_mc=500, noise=False)
         Ypred = Ypred.mean(0).cpu().numpy()[0, ...]  
         Ypred_sub = Ypred[~neurons_train_ind, :][:, Ttest]#(ntrial x N2 x T2)
-        Ytarget = y_test[~neurons_train_ind, :]  #target
+        
+
+        if FLAGS.model_type == 'orig':
+            print('normalizing for eval')
+            Ytarget = ((np.sqrt(y_test) - mu) / sig) #normalize
+            Ytarget = Ytarget[~neurons_train_ind, :]
+        else:
+            Ytarget = y_test[~neurons_train_ind, :]  #target
 
         mean_corr = np.nanmean([
             pearsonr(Ypred_sub[n, :], Ytarget[n, :])[0]

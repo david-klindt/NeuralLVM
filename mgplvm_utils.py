@@ -8,10 +8,10 @@ def add_suffix(rep, num_neuron_train, len_data_train, s):
     return f"{s}_{rep}_N{num_neuron_train}_T{len_data_train}"
 
 
-def eval_lats(pred, target):
-    errs = np.zeros((2, 1000))
+def eval_lats(pred, target, res = 1000):
+    errs = np.zeros((2, res))
     for i in range(2):
-        for i_s, s in enumerate(np.linspace(0, 2 * np.pi, 1000)):
+        for i_s, s in enumerate(np.linspace(0, 2 * np.pi, res)):
             newpred = 2 * (0.5 - i) * pred + s
             errs[i, i_s] = np.mean(np.arccos(np.cos(newpred - target)))
     return np.amin(errs)

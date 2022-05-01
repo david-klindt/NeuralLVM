@@ -128,11 +128,28 @@ class FeatureBasis(torch.nn.Module):
                     requires_grad=True
                 )
 
-    def forward(self, z, receptive_field_centers, is_test=False):
+    def forward(self, z, receptive_field_centers, is_test=0):
+        # is_test: 0 - computed gradients for complete model, 1 - grads only for decoder, 2 - no grads
         # dimension names: B=Batch, L=Length, N=Neurons, H=num_basis**latent_dim
         # E=num_ensemble, D=latent_dim, V=angle as vector (2D)
 
-        if is_test:
+        if is_test == 0:
+            z = z
+            variance = self.variance
+            if self.feature_type is not 'bump':
+                coeffs = self.coeffs
+                means = self.means
+            else:
+                log_tuning_width = self.log_tuning_width
+        elif is_test == 1:
+            z = z.detach()
+            variance = self.variance
+            if self.feature_type is not 'bump':
+                coeffs = self.coeffs
+                means = self.means
+            else:
+                log_tuning_width = self.log_tuning_width
+        elif is_test == 2:
             z = z.detach()
             variance = self.variance.detach()
             if self.feature_type is not 'bump':
@@ -140,13 +157,6 @@ class FeatureBasis(torch.nn.Module):
                 means = self.means.detach()
             else:
                 log_tuning_width = self.log_tuning_width.detach()
-        else:
-            variance = self.variance
-            if self.feature_type is not 'bump':
-                coeffs = self.coeffs
-                means = self.means
-            else:
-                log_tuning_width = self.log_tuning_width
 
         z_vector = angle2vector(z)  # B x L x E x D x V
         rf_vector = angle2vector(receptive_field_centers)  # N x E x D x V
@@ -208,13 +218,13 @@ class LatentVariableModel(torch.nn.Module):
             # initialize randomly in [-pi, pi]
             - np.pi + 2 * np.pi * torch.rand(
                 num_neuron_train, num_ensemble, latent_dim),
-            requires_grad=not(feature_type.startswith('separate'))
+            requires_grad=True#not(feature_type.startswith('separate'))
         )
         self.receptive_fields_test = torch.nn.Parameter(
             # initialize randomly in [-pi, pi]
             - np.pi + 2 * np.pi * torch.rand(
                 num_neuron_test, num_ensemble, latent_dim),
-            requires_grad=not(feature_type.startswith('separate'))
+            requires_grad=True#not(feature_type.startswith('separate'))
         )
         self.ensemble_weights_train = torch.nn.Parameter(
             torch.randn(num_neuron_train, num_ensemble),
@@ -321,20 +331,23 @@ class LatentVariableModel(torch.nn.Module):
             z = reparameterize(z_angle, logvar)  # B x L x E x D
 
         # Compute responses
+        is_test = 0  # computed gradients for complete model
         response_train = self.compute_responses(
             self.ensemble_weights_train,
             self.log_final_scale_train,
-            self.feature_basis(z, self.receptive_fields_train, is_test=False),
+            self.feature_basis(z, self.receptive_fields_train, is_test=is_test),
             input_shape
         )
         if self.feature_type.startswith('separate'):
             feature_basis_test = self.feature_basis_test
+            is_test = 1  # 1 - grads only for decoder
         else:
             feature_basis_test = self.feature_basis
+            is_test = 2  # 2 - no grads
         response_test = self.compute_responses(
             self.ensemble_weights_test,
             self.log_final_scale_test,
-            feature_basis_test(z, self.receptive_fields_test, is_test=True),
+            feature_basis_test(z, self.receptive_fields_test, is_test=is_test),
             input_shape
         )
 

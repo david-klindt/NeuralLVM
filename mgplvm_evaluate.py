@@ -15,7 +15,7 @@ Ntrains, Ttrains = Ntrains + len(Ttrains) * [30], len(Ntrains) * [1000] + Ttrain
 results_dir = 'mgplvm_results'
 
 res = 2000
-reps = 4
+reps = 6
 model_types = ['cosyne', 'orig']
 
 lat_errs = np.zeros((2, reps, len(Ntrains)))
@@ -79,6 +79,9 @@ for i, dat in enumerate(dats):
     ax.set_xlabel(xlabs[i])
     ax.set_ylabel(ylabs[i])
     ax.set_ylim(ylims[i])
+
+    if 'timepoints' in xlabs[i]:
+        ax.set_xscale('log')
 
     if i == 0:
         ax.legend(['cosyne', 'neurips'], frameon = False)

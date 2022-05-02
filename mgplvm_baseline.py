@@ -18,10 +18,10 @@ from scipy.stats import pearsonr
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("n_z", 16, "number of inducing points")
-flags.DEFINE_integer("random_seed", 100_000_000, "random seed")
+flags.DEFINE_integer("random_seed", 42, "random seed")
 flags.DEFINE_string("model_type", "cosyne",
                     "`orig` (Gaussian + uniform) or `cosyne` (Poisson + AR)")
-flags.DEFINE_string("results_dir", "./results/",
+flags.DEFINE_string("results_dir", "./mgplvm_results/",
                     "results directory")
 flags.DEFINE_string("device", "cuda", "device: cuda or cpu")
 flags.DEFINE_integer("max_iter", 2000, "training iterations")
@@ -39,7 +39,7 @@ Ntrains, Ttrains = Ntrains + len(Ttrains) * [30], len(Ntrains) * [1000] + Ttrain
 num_neuron_test = 30
 len_data_test = 1000
 
-Ntrains, Ttrains = Ntrains[::2], Ttrains[::2]
+#Ntrains, Ttrains = Ntrains[::2], Ttrains[::2]
 
 lat_perfs = np.zeros((reps, len(Ntrains)))
 pred_perfs = np.zeros((reps, len(Ntrains)))
@@ -105,14 +105,6 @@ def run(rep):
         print(Y.shape)
 
         manif = mgp.manifolds.Torus(m, d)  # latent distribution manifold
-        lat_dist = mgp.rdist.ReLie(
-            manif,
-            m,
-            n_samples,
-            Y=Y,
-            initialization='random',
-            sigma=np.pi / 2,
-            diagonal=True)  # construct ReLie distribution
 
         if FLAGS.model_type == 'orig':  #Gaussian noise and uniform prior
             lik = mgp.likelihoods.Gaussian(n, Y=Y1,
@@ -120,6 +112,7 @@ def run(rep):
             lprior = mgp.lpriors.Uniform(
                 manif)  # Prior on the manifold distribution
             sig_kernel = np.sqrt(1 - 0.5**2)
+            ell, lat_sig = 1.0, np.pi/2
         else:  #Poisson noise and AR prior
             lik = mgp.likelihoods.Poisson(n)  #Poisson likelihood
             lprior = mgp.lpriors.Brownian(manif,
@@ -128,12 +121,22 @@ def run(rep):
                                             brownian_eta=torch.ones(d) *
                                             np.pi**2)
             sig_kernel = 0.05
+            ell, lat_sig = 0.5, np.pi/4
+
+        lat_dist = mgp.rdist.ReLie(
+            manif,
+            m,
+            n_samples,
+            Y=Y,
+            initialization='random',
+            sigma = lat_sig,
+            diagonal=True)  # construct ReLie distribution
 
         kernel = mgp.kernels.QuadExp(
             n,
             manif.distance,
             Y=Y1,
-            ell=np.ones(n) * 1,
+            ell=np.ones(n) * ell,
             scale = sig_kernel * np.ones(n)
         )  # Use an exponential quadratic (RBF) kernel
 

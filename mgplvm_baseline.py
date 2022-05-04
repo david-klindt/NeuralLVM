@@ -14,6 +14,7 @@ import logging
 import time
 from mgplvm_utils import add_suffix, eval_lats, plot_data, gen_cb
 from scipy.stats import pearsonr
+import pickle5
 
 FLAGS = flags.FLAGS
 
@@ -21,11 +22,16 @@ flags.DEFINE_integer("n_z", 16, "number of inducing points")
 flags.DEFINE_integer("random_seed", 42, "random seed")
 flags.DEFINE_string("model_type", "cosyne",
                     "`orig` (Gaussian + uniform) or `cosyne` (Poisson + AR)")
-flags.DEFINE_string("results_dir", "./mgplvm_results/",
+flags.DEFINE_string("results_dir", "./peyrache_results/",
                     "results directory")
 flags.DEFINE_string("device", "cuda", "device: cuda or cpu")
 flags.DEFINE_integer("max_iter", 2000, "training iterations")
 flags.DEFINE_integer("n_mc", 20, "MC samples")
+#flags.DEGINE_string("data_type", "synthetic", "`synthetic` or `peyrache`")
+
+### this is hard-coded for now ###
+data_type = "synthetic"
+data_type = "peyrache"
 
 #%%
 
@@ -38,8 +44,16 @@ Ttrains = [75, 100, 150, 200, 300, 400, 500, 750, 1000, 2500]
 Ntrains, Ttrains = Ntrains + len(Ttrains) * [30], len(Ntrains) * [1000] + Ttrains
 num_neuron_test = 30
 len_data_test = 1000
+batch_size = None
 
 #Ntrains, Ttrains = Ntrains[::2], Ttrains[::2]
+
+if data_type == "peyrache":
+    print("running on mouse HD data!")
+    Ntrains, Ttrains = [23], [19000]
+    num_neuron_test, len_data_test = 3, 1000
+    batch_size = 10000 #need a slightly smaller batch size to fit in memory
+
 
 lat_perfs = np.zeros((reps, len(Ntrains)))
 pred_perfs = np.zeros((reps, len(Ntrains)))
@@ -59,9 +73,16 @@ def run(rep):
 
         np.random.seed(FLAGS.random_seed+index)
         torch.manual_seed(FLAGS.random_seed+index)
-        y_train, z_train, y_test, z_test, rf, neurons_train_ind = get_data(
-            num_neuron_train, num_neuron_test, len_data_train,
-            len_data_test, index, FLAGS.random_seed)
+
+        if data_type == "synthetic": #generate data
+            y_train, z_train, y_test, z_test, rf, neurons_train_ind = get_data(
+                num_neuron_train, num_neuron_test, len_data_train,
+                len_data_test, index, FLAGS.random_seed)
+        elif data_type == "peyrache": #load data
+            data = pickle5.load(open("Mouse28_train_test_data.pkl", "rb"))
+            keys = ['y_train', 'z_train', 'y_test', 'z_test', 'neurons_train_ind']
+            y_train, z_train, y_test, z_test, neurons_train_ind = [data[key][0] for key in keys]
+            z_train, z_test = z_train[:, None], z_test[:, None]
 
         logging.info(f"y_train: {y_train.shape}")  #Ntot x Ttrain
         logging.info(f"z_train: {z_train.shape}")  #d x Ttrain
@@ -84,8 +105,8 @@ def run(rep):
                                                         keepdims=True)
             sig = np.maximum(sig, 1e-3)
             Y1 = ((Y1 - mu) / sig)
-            Y2 = ((np.sqrt(y_test) - mu) / sig)  #[neurons_train_ind, :]
-        else:  #Poisson noise and AR prior
+            Y2 = ((np.sqrt(y_test) - mu) / sig)
+        elif FLAGS.model_type == 'cosyne':  #Poisson noise and AR prior
             Y1 = y_train
             Y2 = y_test  #[neurons_train_ind, :]
 
@@ -100,11 +121,10 @@ def run(rep):
         data = torch.tensor(Y).to(FLAGS.device)
         n_samples, n, m = Y.shape
 
-        #print(Ttrain)
-        #print(Ttest)
         print(Y.shape)
 
         manif = mgp.manifolds.Torus(m, d)  # latent distribution manifold
+        ell, lat_sig = 1.0, np.pi/2 #initial length scale and variational uncertainty
 
         if FLAGS.model_type == 'orig':  #Gaussian noise and uniform prior
             lik = mgp.likelihoods.Gaussian(n, Y=Y1,
@@ -112,7 +132,6 @@ def run(rep):
             lprior = mgp.lpriors.Uniform(
                 manif)  # Prior on the manifold distribution
             sig_kernel = np.sqrt(1 - 0.5**2)
-            ell, lat_sig = 1.0, np.pi/2
         else:  #Poisson noise and AR prior
             lik = mgp.likelihoods.Poisson(n)  #Poisson likelihood
             lprior = mgp.lpriors.Brownian(manif,
@@ -121,7 +140,10 @@ def run(rep):
                                             brownian_eta=torch.ones(d) *
                                             np.pi**2)
             sig_kernel = 0.05
-            ell, lat_sig = 0.5, np.pi/4
+
+            if data_type == "synthetic":
+                ell, lat_sig = 0.5, np.pi/4 #worked a bit better on held-out seeds
+
 
         lat_dist = mgp.rdist.ReLie(
             manif,
@@ -158,7 +180,8 @@ def run(rep):
                                                 lrate=5e-2,
                                                 burnin=200,
                                                 print_every=100,
-                                                callback=cb)
+                                                callback=cb,
+                                                batch_size = batch_size)
 
         #the way we do crossvalidation is by constructing a model with all the data.
         #we then mask the timepoints/neurons we don't want to train on
@@ -167,7 +190,6 @@ def run(rep):
                                                         batch_pool=Ttrain,
                                                         prior_m=len(Ttrain),
                                                         neuron_idxs=np.where(neurons_train_ind)[0])
-        #print(train_ps)
 
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps)  #train model
@@ -184,7 +206,6 @@ def run(rep):
                                                         mask_Ts = (lambda x: x*0)
                                                         )
 
-        #print(train_ps1)
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps1)  #train model
 
@@ -209,22 +230,23 @@ def run(rep):
             prior_m=None,
             batch_pool=None,
             max_steps=int(round(FLAGS.max_iter/2)))
-        #print(train_ps2)
-        #for p in model.lat_dist.parameters():
-        #    print(p)
 
         mod_train = mgp.crossval.train_model(model, data,
                                                 train_ps2)  #train
 
-        # %% testing!
+        # %% evaluation!
 
         latents = model.lat_dist.prms[0].detach()[:, ...]  #test latents
         query = latents.transpose(-1, -2)  #(ntrial, d, m)
-        Ypred = model.svgp.sample(query, n_mc=500, noise=False)
-        Ypred = Ypred.mean(0).cpu().numpy()[0, ...]  
+
+        Ypred = []
+        for _ in range(50): #sample in chunks
+            Ypred.append(model.svgp.sample(query, n_mc=20, noise=False).cpu().numpy())
+        Ypred = np.concatenate(Ypred, axis = 0) #concatenate samples
+        Ypred = np.mean(Ypred, axis = 0)[0, ...] #avg samples and take first (only) trial
+
         Ypred_sub = Ypred[~neurons_train_ind, :][:, Ttest]#(ntrial x N2 x T2)
         
-
         if FLAGS.model_type == 'orig':
             print('normalizing for eval')
             Ytarget = ((np.sqrt(y_test) - mu) / sig) #normalize
@@ -238,16 +260,17 @@ def run(rep):
         ])  #mean pearsonr across neurons
         print(num_neuron_train, len_data_train)
         #logging.info(f"result: {mean_corr}")
-        print('result:', mean_corr)
+        print('result (rates):', mean_corr)
 
         z_pred = model.lat_dist.prms[0].detach().cpu().numpy()[0, ...]
         lat_err = eval_lats(z_pred[Ttest, 0], z_tot[Ttest, 0])
-        print('result:', lat_err)
+        print('result (latents):', lat_err)
         print('elapsed time:', time.time()-tic)
 
         lat_perfs[rep, iparam] = lat_err
         pred_perfs[rep, iparam] = mean_corr
 
+        #%% save some data for future analyses!
         filename = suffix(
             f"{FLAGS.results_dir}/mgplvm_res_{FLAGS.model_type}")
         with open(f"{filename}_params.p", "wb") as f:
@@ -257,8 +280,8 @@ def run(rep):
                 'z_train': z_train, 'z_test': z_test, 'y_pred': Ypred, 'z_pred': z_pred}
         with open(f"{filename}.p", "wb") as f:
             pickle.dump(data, f)
-        with open(f"{filename}_pt.p", "wb") as f:
-            pickle.dump(model, f)
+
+        torch.save(model.to('cpu'), f"{filename}.pt") #also save the full model
 
 
 def main(_):

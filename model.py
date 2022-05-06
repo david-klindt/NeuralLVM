@@ -331,7 +331,7 @@ class LatentVariableModel(torch.nn.Module):
             z = reparameterize(z_angle, logvar)  # B x L x E x D
 
         # Compute responses
-        is_test = 0  # computed gradients for complete model
+        is_test = 0  # compute gradients for complete model
         response_train = self.compute_responses(
             self.ensemble_weights_train,
             self.log_final_scale_train,

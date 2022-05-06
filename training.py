@@ -6,6 +6,15 @@ from scipy.stats import pearsonr, spearmanr
 from model import *
 
 
+def check_grad(model, log_file):
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            if torch.any(torch.isnan(param.grad)):
+                print('NaN in Gradient, skipping step', name, file=log_file)
+                return False
+    return True
+
+
 class Trainer:
     def __init__(
             self,
@@ -26,7 +35,13 @@ class Trainer:
             weight_time=0,
             weight_entropy=0,
             log_dir='model_ckpt',
+            log_training=False,
     ):
+        if log_training:
+            os.makedirs(log_dir, exist_ok=True)
+            self.log_file = open(os.path.join(log_dir, "train_log.txt"), 'a', 1)
+        else:
+            self.log_file = False
         device = "cuda" if torch.cuda.is_available() else "cpu"
         torch.manual_seed(seed)
         self.model = model
@@ -92,7 +107,8 @@ class Trainer:
                     self.weight_entropy * entropy
                 )
             loss.backward()
-            self.optimizer.step()
+            if check_grad(self.model, self.log_file):
+                self.optimizer.step()
             running_loss += loss.item()
 
             if i > 0 and not (i % self.num_log_step):
@@ -109,7 +125,7 @@ class Trainer:
                 if self.mode is not 'full':
                     encoder_loss = torch.sum(
                         (angle2vector(z) - angle2vector(z_)) ** 2)
-                    print('encoder_loss=', encoder_loss)
+                    print('encoder_loss=', encoder_loss, file=self.log_file)
                 corrs = []
                 for j in range(y_test.shape[0]):
                     corrs.append(pearsonr(
@@ -119,14 +135,14 @@ class Trainer:
                     i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
                     kld_loss.item(), slowness_loss.item(), np.nanmean(corrs), entropy.item(),
                     time.time() - t0
-                ))
+                ), file=self.log_file)
 
                 # early stopping
                 loss_track.append(running_loss)
                 if loss_track[-1] > np.min(loss_track):
                     worse += 1
                     if worse > self.num_worse:
-                        print('Early stopping at iteration', i)
+                        print('Early stopping at iteration', i, file=self.log_file)
                         break
                 else:
                     # if improved, reset counter and save model
@@ -138,3 +154,5 @@ class Trainer:
         # after training, load best and set to eval mode.
         self.model.load_state_dict(torch.load(self.save_path))
         self.model.eval()
+        return (i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
+                kld_loss.item(), slowness_loss.item(), np.nanmean(corrs), entropy.item())

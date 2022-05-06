@@ -131,3 +131,4 @@ dmypy.json
 # Custom
 .idea/
 hyperspherical_lvm.py
+.local_notebooks/

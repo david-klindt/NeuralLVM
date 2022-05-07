@@ -32,7 +32,7 @@ class Trainer:
             seed=23412521,
             learning_rate=3e-3,
             num_worse=5,  # if loss doesn't improve X times, stop.
-            weight_kl=1e-2,
+            weight_kl=1e-2,  # if latent_style='hyper' try lowering this to 3e-7
             weight_time=0,
             weight_entropy=0,
             log_dir='model_ckpt',

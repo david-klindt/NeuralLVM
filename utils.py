@@ -14,15 +14,22 @@ def torch_circular_gp(num_sample, num_dim, smoothness):
 def analysis(ensembler, model, trainer, z_test, do_inference=False):
     num_ensemble = ensembler.num_ensemble
     latent_dim = ensembler.latent_dim
-    _, y_, z_, mu, logvar = ensembler(trainer.data_test[trainer.neurons_train_ind])
+    if ensembler.latent_style == 'hack':
+        _, y_, z_, mu, logvar = ensembler(trainer.data_test[trainer.neurons_train_ind])
+    elif ensembler.latent_style == 'hyper':
+        _, y_, z_, mu, logvar, _, _ = ensembler(trainer.data_test[trainer.neurons_train_ind])
 
     if do_inference:
         z_ = inference(ensembler,
             trainer.data_test[trainer.neurons_train_ind],
             trainer.data_test[trainer.neurons_test_ind],
         )
-        _, y_, _, mu, logvar = ensembler(
-            trainer.data_test[trainer.neurons_train_ind], z=z_)
+        if ensembler.latent_style == 'hack':
+            _, y_, _, mu, logvar = ensembler(
+                trainer.data_test[trainer.neurons_train_ind], z=z_)
+        elif ensembler.latent_style == 'hyper':
+            _, y_, _, mu, logvar, _, _ = ensembler(
+                trainer.data_test[trainer.neurons_train_ind], z=z_)
 
     z_ = z_.view(z_test.shape)
     logvar = logvar.view(z_test.shape)
@@ -39,7 +46,8 @@ def analysis(ensembler, model, trainer, z_test, do_inference=False):
     plt.show()
 
     # all latent comparisons
-    vars = torch.exp(logvar).detach().cpu().numpy()
+    #vars = torch.exp(logvar).detach().cpu().numpy()
+    vars = logvar.detach().cpu().numpy()
     plt.figure(figsize=(20, 20))
     for i in range(latent_dim * num_ensemble):
         for j in range(latent_dim * num_ensemble):

@@ -1,6 +1,7 @@
 import torch
 from torch.autograd import Variable
 import numpy as np
+from hyperspherical_vae import reparameterize_vmf
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print('Running on', device)
@@ -136,7 +137,7 @@ class FeatureBasis(torch.nn.Module):
         if is_test == 0:
             z = z
             variance = self.variance
-            if self.feature_type is not 'bump':
+            if self.feature_type != 'bump':
                 coeffs = self.coeffs
                 means = self.means
             else:
@@ -144,7 +145,7 @@ class FeatureBasis(torch.nn.Module):
         elif is_test == 1:
             z = z.detach()
             variance = self.variance
-            if self.feature_type is not 'bump':
+            if self.feature_type != 'bump':
                 coeffs = self.coeffs
                 means = self.means
             else:
@@ -152,7 +153,7 @@ class FeatureBasis(torch.nn.Module):
         elif is_test == 2:
             z = z.detach()
             variance = self.variance.detach()
-            if self.feature_type is not 'bump':
+            if self.feature_type != 'bump':
                 coeffs = self.coeffs.detach()
                 means = self.means.detach()
             else:
@@ -201,6 +202,7 @@ class LatentVariableModel(torch.nn.Module):
             normalize_encodings=True,
             feature_type='bump',  # {'bump', 'shared', 'separate'}
             num_feature_basis=3,  # careful this scales badly with latent_dim!
+            latent_style='hack',  # {'hack': our current version, 'hyper': the proper one from hypersph. vae}
     ):
         super(LatentVariableModel, self).__init__()
         self.num_neuron_train = num_neuron_train  # used to infer latents and learn shared features
@@ -212,6 +214,7 @@ class LatentVariableModel(torch.nn.Module):
         self.kernel_size = kernel_size
         self.normalize_encodings = normalize_encodings
         self.feature_type = feature_type
+        self.latent_style = latent_style
 
         torch.manual_seed(seed)
         self.receptive_fields_train = torch.nn.Parameter(
@@ -323,12 +326,23 @@ class LatentVariableModel(torch.nn.Module):
         logvar = logvar.view(  # B x L x E x D
             batch_size, length, self.num_ensemble, self.latent_dim)
 
-        if self.normalize_encodings:
-            mu = mu / torch.sum(mu ** 2, dim=-1, keepdim=True) ** .5
+        if self.latent_style == 'hyper':
+            mu = mu / mu.norm(dim=-1, keepdim=True)
+            # the `+ 1` prevent collapsing behaviors
+            logvar = torch.nn.functional.softplus(logvar) + 1
+        elif self.normalize_encodings:
+            mu = mu / mu.norm(dim=-1, keepdim=True)
 
         if z is None:
-            z_angle = vector2angle(mu)  # B x L x E x D
-            z = reparameterize(z_angle, logvar)  # B x L x E x D
+            if self.latent_style == 'hack':
+                z_angle = vector2angle(mu)  # B x L x E x D
+                z = reparameterize(z_angle, logvar)  # B x L x E x D
+            elif self.latent_style == 'hyper':
+                q_z, p_z = reparameterize_vmf(mu, logvar)
+                z = q_z.rsample()  # B x L x E x D x V
+                z = vector2angle(z)  # B x L x E x D
+        else:
+            q_z, p_z = None, None
 
         # Compute responses
         is_test = 0  # compute gradients for complete model
@@ -350,8 +364,10 @@ class LatentVariableModel(torch.nn.Module):
             feature_basis_test(z, self.receptive_fields_test, is_test=is_test),
             input_shape
         )
-
-        return response_train, response_test, z, mu, logvar
+        if self.latent_style == 'hack':
+            return response_train, response_test, z, mu, logvar
+        elif self.latent_style == 'hyper':
+            return response_train, response_test, z, mu, logvar, q_z, p_z
 
     def compute_responses(self, ensemble_weights, log_final_scale, response, input_shape):
         ensemble_weights = torch.nn.functional.softmax(  # 1 x 1 x N x E
@@ -381,7 +397,10 @@ def inference(
     # get latent samples
     latents = []
     for i in range(num_sample):
-        _, _, z_, _, _ = model(y_train, z=None)
+        if model.latent_style == 'hack':
+            _, _, z_, _, _ = model(y_train, z=None)
+        elif model.latent_style == 'hyper':
+            _, _, z_, _, _, _, _ = model(y_train, z=None)
         z_opt = torch.clone(z_.detach())
         z_opt.requires_grad = True
         latents.append(z_opt)
@@ -393,7 +412,10 @@ def inference(
         loss = 0
         losses = []
         for j in range(num_sample):
-            y_train_, _, _, _, _ = model(y_train, z=latents[j])
+            if model.latent_style == 'hack':
+                y_train_, _, _, _, _ = model(y_train, z=latents[j])
+            elif model.latent_style == 'hyper':
+                y_train_, _, _, _, _, _, _ = model(y_train, z=latents[j])
             losses.append(compute_poisson_loss(y_train, y_train_))
             loss = loss + losses[-1]
         loss.backward()
@@ -403,7 +425,10 @@ def inference(
             train_loss = torch.min(torch.tensor(losses)).item()
             losses = []
             for j in range(num_sample):
-                _, y_test_, _, _, _ = model(y_train, z=latents[j])
+                if model.latent_style == 'hack':
+                    _, y_test_, _, _, _ = model(y_train, z=latents[j])
+                elif model.latent_style == 'hyper':
+                    _, y_test_, _, _, _, _, _ = model(y_train, z=latents[j])
                 losses.append(compute_poisson_loss(y_test, y_test_))
             print('INFERENCE: iter %s, negLLH(train): %s, negLLH(test): %s' % (
                 i, train_loss, torch.min(torch.tensor(losses)).item()))
@@ -411,7 +436,10 @@ def inference(
     # get best latents of all samples
     losses = []
     for j in range(num_sample):
-        y_train_, _, _, _, _ = model(y_train, z=latents[j])
+        if model.latent_style == 'hack':
+            y_train_, _, _, _, _ = model(y_train, z=latents[j])
+        elif model.latent_style == 'hyper':
+            y_train_, _, _, _, _, _, _ = model(y_train, z=latents[j])
         losses.append(compute_poisson_loss(y_train, y_train_))
     best_latents = latents[torch.argmin(torch.tensor(losses))]
     return best_latents

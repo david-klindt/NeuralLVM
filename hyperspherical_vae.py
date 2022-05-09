@@ -10,7 +10,7 @@ from torch.distributions.kl import register_kl
 
 def reparameterize_vmf(z_mean, z_var):
     q_z = VonMisesFisher(z_mean, z_var[..., None])
-    p_z = HypersphericalUniform(z_mean.shape[-1] - 1)
+    p_z = HypersphericalUniform(z_mean.shape[-1] - 1, device=z_mean.device)
     return q_z, p_z
 
 

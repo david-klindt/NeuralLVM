@@ -132,3 +132,4 @@ dmypy.json
 .idea/
 hyperspherical_lvm.py
 local_notebooks/
+model_ckpt/

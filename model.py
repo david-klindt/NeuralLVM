@@ -1,6 +1,7 @@
 import torch
 from torch.autograd import Variable
 import numpy as np
+from torch.special import i0
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print('Running on', device)
@@ -109,6 +110,21 @@ class FeatureBasis(torch.nn.Module):
                 torch.ones(1) * np.log(tuning_width),
                 requires_grad=True
             )
+        elif feature_type.startswith('vmf'):
+            self.coeffs = torch.nn.Parameter(
+                torch.randn(num_basis * 2 + 1, 1 if feature_type.endswith('shared') else num_neuron) * 1e-3,
+                requires_grad=True
+            )
+            self.coeffs.data[1] += 1.0  # initialize as broad little bump
+            self.basis_rang = torch.nn.Parameter(
+                torch.arange(num_basis)[None, None, :, None, None, None] + 1,
+                requires_grad=False
+            )
+            self.basis_scale = torch.nn.Parameter(  # normalizer of vmf
+                2 * np.pi * i0(self.basis_rang.data),
+                requires_grad=False
+            )
+            self.means = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
         else:
             # build grid of num_basis**latent_dim centers
             means = torch.linspace(0, 2 * np.pi, num_basis + 1)[:-1]
@@ -167,6 +183,23 @@ class FeatureBasis(torch.nn.Module):
             dist = torch.sum(  # B x L x N x E
                 (z_vector - rf_vector) ** 2, dim=(4, 5))
             response = - dist / torch.exp(log_tuning_width)
+        elif self.feature_type.startswith('vmf'):
+            z = z[:, :, None, None]  # B x L x 1 x 1 x E x D
+            receptive_field_centers = receptive_field_centers[None, None, None]  # 1 x 1 x 1 x N x E x D
+            z_per_neuron = z - receptive_field_centers  # B x L x 1 x N x E x D
+            response_dc = torch.zeros_like(z_per_neuron)  # B x L x 1 x N x E x D
+            response_cos = torch.cos(z_per_neuron)  # B x L x 1 x N x E x D
+            response_sin = torch.sin(z_per_neuron)  # B x L x 1 x N x E x D
+            response_cos = response_cos * self.basis_rang  # B x L x H x N x E x D
+            response_sin = response_sin * self.basis_rang  # B x L x H x N x E x D
+            response_dc = torch.exp(response_dc)  # B x L x 1 x N x E x D
+            response_cos = torch.exp(response_cos) / self.basis_scale  # B x L x H x N x E x D
+            response_sin = torch.exp(response_sin) / self.basis_scale  # B x L x H x N x E x D
+            response = torch.cat([response_dc, response_cos, response_sin], 2)  # B x L x H x N x E x D
+            # sum over dims
+            response = torch.sum(response, dim=5)
+            coeffs = coeffs[None, None, :, :, None]
+            response = torch.sum(response * coeffs, dim=2)  # B x L x N x E
         else:
             means = angle2vector(means[:, None, None])  # H x 1 x 1 x D x V
             means_per_neuron = means - rf_vector[None]  # H x N x E x D x V

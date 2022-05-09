@@ -41,7 +41,7 @@ class Trainer:
             os.makedirs(log_dir, exist_ok=True)
             self.log_file = open(os.path.join(log_dir, "train_log.txt"), 'a', 1)
         else:
-            self.log_file = False
+            self.log_file = None
         device = "cuda" if torch.cuda.is_available() else "cpu"
         torch.manual_seed(seed)
         self.model = model

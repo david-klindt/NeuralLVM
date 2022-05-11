@@ -5,6 +5,81 @@ from sklearn.feature_selection import mutual_info_regression
 from model import *
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def angle2vector(angle):
+    return torch.stack([torch.sin(angle), torch.cos(angle)], -1)
+
+
+def vector2angle(vector):
+    return torch.atan2(vector[..., 0], vector[..., 1])
+
+
+def angle2vector_flat(angle):
+    vector = []
+    for i in range(angle.shape[1]):
+        vector.append(torch.sin(angle[:, i]))
+        vector.append(torch.cos(angle[:, i]))
+    return torch.stack(vector, 1)
+
+
+def vector2angle_flat(vector):
+    angle = []
+    for i in range(vector.shape[1] // 2):
+        angle.append(torch.atan2(vector[:, i * 2], vector[:, i * 2 + 1]))
+    return torch.stack(angle, 1)
+
+
+def sum_pairs(x):
+    sum = []
+    for i in range(x.shape[1] // 2):
+        sum.append(torch.sum(x[:, i * 2:(i + 1) * 2], dim=1))
+    return torch.stack(sum, 1)
+
+
+def reparameterize(mu, logvar):
+    std = logvar.div(2).exp()
+    eps = Variable(std.data.new(std.size()).normal_())
+    return mu + std * eps
+
+
+def compute_kld_to_normal(mu, logvar):
+    """Computes the KL(q|p) between variational posterior q and standard
+    normal p."""
+    return torch.mean(-0.5 * (1 + logvar - mu ** 2 - logvar.exp()))
+
+
+def compute_kld(q1_mu, q1_logvar, q0_mu, q0_logvar):
+    """Computes the KL(q_t|q_{t-1}) between variational posterior q_t ("q1")
+    and variational posterior q_{t-1} ("q0")."""
+    KL = (q0_logvar - q1_logvar) / 2
+    KL = KL + (q1_logvar.exp() + (q0_mu - q1_mu) ** 2) / (2 * q0_logvar.exp())
+    KL = torch.mean(KL - 1 / 2)
+    return KL
+
+
+def compute_slowness_loss(mu):
+    """compute squared difference over 2nd dimension, i.e., time."""
+    return torch.mean((mu[:, 1:] - mu[:, -1]) ** 2)
+
+
+def compute_poisson_loss(y, y_):
+    return torch.mean(y_ - y * torch.log(y_ + 1e-9))
+
+
+def torch_normalize(y):
+    normed = y - torch.mean(y, dim=1, keepdim=True)
+    norm = torch.linalg.norm(normed, dim=1, keepdim=True) + 1e-6
+    return normed / norm
+
+
+def correlation_loss(y, y_):
+    return torch.mean(
+        torch.sum(torch_normalize(y) * torch_normalize(y_), dim=1))
+
+
 def torch_circular_gp(num_sample, num_dim, smoothness):
     z = torch.randn(num_sample, num_dim) / smoothness
     z = torch.cumsum(z, 0)

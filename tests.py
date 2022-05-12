@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from gtda.homology import VietorisRipsPersistence
 from gtda.plotting import plot_diagram
-from utils import torch_circular_gp, analysis
+from utils import *
 from model import *
 from training import Trainer
 
@@ -123,7 +123,7 @@ def test_simulation():
         fig0.show()
 
 
-def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
+def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
                   latent_dim=2, z_smoothness=3, num_sample=100000,
                   num_test=10000, feature_type='bump'):
     num_neuron = num_neuron_train + num_neuron_test
@@ -134,23 +134,22 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
         replace=False
     )
     neurons_train_ind[ind] = True
-    model = StochasticNeurons(
+    simulator = StochasticNeurons(
         num_neuron, num_ensemble=num_ensemble, noise=True, latent_dim=latent_dim).to(device)
-    ensembler = LatentVariableModel(
+    ensembler = Model(
         num_neuron_train=num_neuron_train * num_ensemble,
         num_neuron_test=num_neuron_test * num_ensemble,
+        kernel_size=33,
         num_hidden=256,
-        num_ensemble=num_ensemble,
-        latent_dim=latent_dim,
-        seed=234587,
-        tuning_width=10.0,
-        nonlinearity='exp',
-        kernel_size=9,
-        feature_type=feature_type,
+        latent_manifolds=('T2', 'T2'),
+        feature_type=(feature_type, feature_type, feature_type),
+        shared=(True, True),
+        flexibility=((False, False, True), (False, False, True)),
+        num_basis=(1, 1),
+        seed=1293842,
     ).to(device)
     print('model', ensembler)
-    print('number of trainable parameters in model:', (count_parameters(
-        ensembler)))
+    print('number of trainable parameters in model:', (count_parameters(ensembler)))
 
     if z_smoothness > 0:  # gp latents
         z_train = torch_circular_gp(num_sample, latent_dim * num_ensemble, z_smoothness)
@@ -161,10 +160,10 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
 
     z_train = z_train.to(device)
     z_test = z_test.to(device)
-    data_train = model(z_train).detach()
-    model.noise = False
-    data_test = model(z_test).detach()
-    model.noise = True
+    data_train = simulator(z_train).detach()
+    simulator.noise = False
+    data_test = simulator(z_test).detach()
+    simulator.noise = True
 
     trainer = Trainer(
         model=ensembler,
@@ -174,12 +173,13 @@ def test_training(num_ensemble=3, num_neuron_train=50, num_neuron_test=50,
         mode='full',
         z_train=None,
         z_test=None,
-        num_steps=50000,
-        batch_size=128,
+        num_steps=5000,
+        batch_size=16,
+        batch_length=128,
         seed=923683,
-        learning_rate=3e-3
+        learning_rate=1e-2
     )
     trainer.train()
-    analysis(ensembler, model, trainer, z_test)
+    analysis(ensembler, simulator, trainer, z_test)
     print("Repeat analysis with good inference:")
-    analysis(ensembler, model, trainer, z_test, do_inference=True)
+    analysis(ensembler, simulator, trainer, z_test, do_inference=True)

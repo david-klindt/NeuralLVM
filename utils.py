@@ -39,7 +39,7 @@ def sum_pairs(x):
     return torch.stack(sum, 1)
 
 
-def reparameterize(mu, logvar):
+def reparameterize_manual(mu, logvar):
     std = logvar.div(2).exp()
     eps = Variable(std.data.new(std.size()).normal_())
     return mu + std * eps
@@ -62,7 +62,7 @@ def compute_kld(q1_mu, q1_logvar, q0_mu, q0_logvar):
 
 def compute_slowness_loss(mu):
     """compute squared difference over 2nd dimension, i.e., time."""
-    return torch.mean((mu[:, 1:] - mu[:, -1]) ** 2)
+    return torch.mean((mu[:, 1:] - mu[:, :-1]) ** 2)
 
 
 def compute_poisson_loss(y, y_):
@@ -78,6 +78,18 @@ def torch_normalize(y):
 def correlation_loss(y, y_):
     return torch.mean(
         torch.sum(torch_normalize(y) * torch_normalize(y_), dim=1))
+
+
+def check_grad(model, log_file):
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            if torch.any(torch.isnan(param.grad)):
+                print('NaN in Gradient, skipping step', name, file=log_file)
+                return False
+            if torch.any(torch.isinf(param.grad)):
+                print('inf in Gradient, skipping step', name, file=log_file)
+                return False
+    return True
 
 
 def torch_circular_gp(num_sample, num_dim, smoothness):

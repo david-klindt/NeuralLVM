@@ -99,15 +99,17 @@ def test_training(
     feature_type: str = "gauss",   # fixed
     latent_manifolds: str = "T2", # fixed
     seed: int = 0,
-    name: str = '',
+    nonlinearity='exp',
+    name: str = 'run',
     writer: bool = True,
+    base_path='/home/scl1pal/projects/NeuralLVM/NeuralLVM/'
 ):
     # bookkeeping
     args = locals()
     default_args = dict(zip(args.keys(), test_training.__defaults__))
     assert len(args) == len(default_args)
     exp_name = get_exp_name(default_args, args)
-    log_dir = f'../model_ckpt/{exp_name}'
+    log_dir = base_path + f'model_ckpt/{exp_name}'
     writer = SummaryWriter(log_dir=log_dir) if writer else Nop
     for k, v in args.items():
         writer.add_text(k, str(v))
@@ -135,6 +137,7 @@ def test_training(
         learn_var=(learn_var,) * num_ensemble,
         isotropic=(isotropic,) * num_ensemble,
         num_basis=(num_basis,) * num_ensemble,
+        nonlinearity=nonlinearity,
         seed=seed,
     ).to(device)
     print('model', ensembler)
@@ -179,7 +182,7 @@ def test_training(
         weight_kl=weight_kl,
         weight_time=weight_time,
         weight_entropy=weight_entropy,
-        log_dir="model_ckpt",
+        log_dir=log_dir,
         log_training=True,
         seed=seed,
         writer=writer,

@@ -143,7 +143,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         torch.manual_seed(seed)
 
         coeff_shape = (1 if shared else num_neuron, num_basis)
-        var_shape = (1 if shared else num_neuron, num_basis, 1 if isotropic else latent_dim)
+        var_shape = (1 if shared else num_neuron, num_basis ** latent_dim, 1 if isotropic else latent_dim)d
 
         # ToDo(Martin): what are good values here below?
         if feature_type == 'gauss':
@@ -221,6 +221,7 @@ class Decoder(torch.nn.Module):
             learn_mean=(False, False),
             learn_var=(True, True),
             isotropic=(True, True),
+            nonlinearity='exp',
             num_basis=(1, 16),  # ignored for feature_type='bump'
             seed=2093857,
     ):
@@ -257,14 +258,14 @@ class Decoder(torch.nn.Module):
             self.feature_bases_train.append(
                 FeatureBasis(num_neuron_train, feature_type=feature_type[i],  shared=shared[i],
                              learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
-                             isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
+                             isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim, nonlinearity=nonlinearity,
                              manifold=manifold, seed=seed)
             )
             if not self.shared[i]:
                 self.feature_bases_test.append(
                     FeatureBasis(num_neuron_test, feature_type=feature_type[i], shared=shared[i],
                                  learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
-                                 isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
+                                 isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim, nonlinearity=nonlinearity,
                                  manifold=manifold, seed=seed)
                 )
 
@@ -334,6 +335,7 @@ class Model(torch.nn.Module):
             learn_mean=(False, False),
             learn_var=(True, True),
             isotropic=(True, True),
+            nonlinearity='exp',
             num_basis=(1, 1),  # for 1 and 'gauss' = 'bump' model, careful this scales as num_basis**n (e.g. n=2 for R2)
             seed=1293842,
     ):
@@ -359,7 +361,7 @@ class Model(torch.nn.Module):
         self.decoder = Decoder(
             num_neuron_train, num_neuron_test, latent_manifolds=latent_manifolds, feature_type=feature_type,
             shared=shared, learn_coeff=learn_coeff, learn_mean=learn_mean, learn_var=learn_var, isotropic=isotropic,
-            num_basis=num_basis, seed=seed
+            nonlinearity=nonlinearity, num_basis=num_basis, seed=seed
         )
 
     def forward(self, x, z=None):

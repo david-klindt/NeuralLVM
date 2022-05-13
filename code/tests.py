@@ -1,12 +1,12 @@
 import torch
 import numpy as np
-from NeuralLVM.code.utils import angle2vector_flat
-from NeuralLVM.code.utils import sum_pairs
-from NeuralLVM.code.utils import count_parameters
-from NeuralLVM.code.utils import torch_circular_gp
-from NeuralLVM.code.utils import analysis
-from NeuralLVM.code.model import Model
-from NeuralLVM.code.training import Trainer
+from code.utils import angle2vector_flat
+from code.utils import sum_pairs
+from code.utils import count_parameters
+from code.utils import torch_circular_gp
+from code.utils import analysis
+from code.model import Model
+from code.training import Trainer
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 

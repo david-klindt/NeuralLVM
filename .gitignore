@@ -133,3 +133,5 @@ dmypy.json
 hyperspherical_lvm.py
 local_notebooks/
 model_ckpt/
+.vscode/settings.json
+notebooks/*

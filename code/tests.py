@@ -66,16 +66,32 @@ class StochasticNeurons(torch.nn.Module):
 
         return responses
 
-
 def test_training(
-        num_ensemble=2,
-        num_neuron_train=50,
-        num_neuron_test=50,
-        latent_dim=2,
-        z_smoothness=3,
-        num_basis=1,
-        num_sample=10000,
-        num_test=1000
+    kernel_size=9,
+    batch_length=64,
+    num_hidden=256,
+    weight_time=0,
+    weight_entropy=0,
+    num_worse=50,
+    weight_kl=1e-6,
+    learning_rate=3e-3,
+    batch_size=16,
+    num_ensemble=2,
+    num_neuron_train=50,
+    num_neuron_test=50,
+    latent_dim=2,
+    z_smoothness=3,
+    num_basis=1,
+    shared=True,
+    learn_coeff=True,
+    learn_mean=False,
+    learn_var=True,
+    isotropic=True,
+    num_sample=10000,
+    num_test=1000,
+    feature_type="gauss",
+    latent_manifolds="T2",
+    seed=seed,
 ):
     num_neuron = num_neuron_train + num_neuron_test
     neurons_train_ind = np.zeros(num_neuron * num_ensemble, dtype=bool)
@@ -90,17 +106,17 @@ def test_training(
     ensembler = Model(
         num_neuron_train=num_neuron_train * num_ensemble,
         num_neuron_test=num_neuron_test * num_ensemble,
-        kernel_size=9,
-        num_hidden=256,
-        latent_manifolds=('T2', 'T2'),
-        feature_type=('gauss', 'gauss'),
-        shared=(True, True),
-        learn_coeff=(True, True),
-        learn_mean=(False, False),
-        learn_var=(True, True),
-        isotropic=(True, True),
-        num_basis=(num_basis, num_basis),
-        seed=1293842,
+        kernel_size=kernel_size,
+        num_hidden=num_hidden,
+        latent_manifolds=(latent_manifolds,) * num_ensemble,
+        feature_type=(feature_type) * num_ensemble,
+        shared=(shared,) * num_ensemble,
+        learn_coeff=(learn_coeff,) * num_ensemble,
+        learn_mean=(learn_mean,) * num_ensemble,
+        learn_var=(learn_var,) * num_ensemble,
+        isotropic=(isotropic,) * num_ensemble,
+        num_basis=(num_basis,) * num_ensemble,
+        seed=seed,
     ).to(device)
     print('model', ensembler)
     print('number of trainable parameters in model:', (count_parameters(ensembler)))
@@ -137,16 +153,16 @@ def test_training(
         label_test=label_test,
         num_steps=100000,
         num_log_step=100,
-        batch_size=16,
-        batch_length=128,
-        learning_rate=3e-3,
-        num_worse=100,  # if loss doesn't improve X times, stop.
-        weight_kl=1e-6,
-        weight_time=0,
-        weight_entropy=0,
-        log_dir='model_ckpt',
+        batch_size=batch_size,
+        batch_length=batch_length,
+        learning_rate=learning_rate,
+        num_worse=num_worse,  # if loss doesn't improve X times, stop.
+        weight_kl=weight_kl,
+        weight_time=weight_time,
+        weight_entropy=weight_entropy,
+        log_dir="model_ckpt",
         log_training=True,
-        seed=923683,
+        seed=seed,
     )
     output = trainer.train()
 
@@ -155,7 +171,11 @@ def test_training(
     # ToDo(fix analysis code for refactored model)
     #analysis(ensembler, simulator, trainer, z_test)
     #print("Repeat analysis with good inference:")
-    #analysis(ensembler, simulator, trainer, z_test, do_inference=True)
+    #analysis(ensembler, simulator, trainer, z_test, do_inference=True))
+
+
+if __name__ == "__main__":
+    pass
 
 """
 Hyperparameter Search:
@@ -203,4 +223,3 @@ weight_entropy: [0 or geomspace(1e-9, 1e0)]
 seed: ...
 
 """
-

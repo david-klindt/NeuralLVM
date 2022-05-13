@@ -1,0 +1,40 @@
+#!/bin/bash
+#BSUB -J "NLVM[1-{n}]"
+#
+# Determine where the output will be written. WARNING: if you forget to specify
+# this or if the directory does not exist, LSF will not create any output file.
+#BSUB -o {root}/lsf_logs/%x_%j_%i.out
+#
+# Use Voltas by default
+#BSUB -q batch_v100
+
+# Specify the number of GPUs to be used per host.
+#BSUB -gpu "num=1"
+#
+# min number of CPU cores
+#BSUB -n 2
+#
+# Required amount of memory per CPU core (in Mbyte)
+#BSUB -M 20000
+#
+# Specify the maximum runtime of you job. The format is "hours:minutes".
+#BSUB -W 1:00
+#
+# Make sure that all job slots run on the same host
+#BSUB -R "span[hosts=1]"    # run on a single host
+
+
+# Exit on any error. Do not put this line before the two mandatory ones.
+set -e
+
+SUFFIX=$(date '+%Y-%m-%d-%H-%M')_"$LSB_JOBNAME"_"$LSB_JOBID"_"$LSB_JOBINDEX"
+export EXPDIR={root}
+cd {root}
+
+# install virtual environment
+source activate lvm 
+which python
+
+python NeuralLVM/tests.py test_training $(sed -n $LSB_JOBINDEX,$LSB_JOBINDEX'p' {command})         # run line in file
+
+set +e

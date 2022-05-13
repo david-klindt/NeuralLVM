@@ -67,9 +67,16 @@ class StochasticNeurons(torch.nn.Module):
         return responses
 
 
-def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
-                  latent_dim=2, z_smoothness=3, num_basis=1,
-                  num_sample=10000, num_test=1000):
+def test_training(
+        num_ensemble=2,
+        num_neuron_train=50,
+        num_neuron_test=50,
+        latent_dim=2,
+        z_smoothness=3,
+        num_basis=1,
+        num_sample=10000,
+        num_test=1000
+):
     num_neuron = num_neuron_train + num_neuron_test
     neurons_train_ind = np.zeros(num_neuron * num_ensemble, dtype=bool)
     ind = np.random.choice(
@@ -128,9 +135,72 @@ def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
         z_test=None,
         label_train=label_train,
         label_test=label_test,
+        num_steps=100000,
+        num_log_step=100,
+        batch_size=16,
+        batch_length=128,
+        learning_rate=3e-3,
+        num_worse=100,  # if loss doesn't improve X times, stop.
+        weight_kl=1e-6,
+        weight_time=0,
+        weight_entropy=0,
+        log_dir='model_ckpt',
+        log_training=True,
         seed=923683,
     )
-    trainer.train()
-    analysis(ensembler, simulator, trainer, z_test)
-    print("Repeat analysis with good inference:")
-    analysis(ensembler, simulator, trainer, z_test, do_inference=True)
+    output = trainer.train()
+
+    # ToDo(pickle save output file in model_ckpt folder)
+
+    # ToDo(fix analysis code for refactored model)
+    #analysis(ensembler, simulator, trainer, z_test)
+    #print("Repeat analysis with good inference:")
+    #analysis(ensembler, simulator, trainer, z_test, do_inference=True)
+
+"""
+Hyperparameter Search:
+
+### fix:
+
+num_ensemble=2
+latent_manifolds=('T2', 'T2')
+num_neuron_train=50
+num_neuron_test=50
+latent_dim=2
+feature_type=('gauss', 'gauss')
+z_smoothness=3
+num_test=1000
+num_steps=100000
+num_log_step=100
+
+
+### search over:
+
+# data (this is more to check)
+num_sample: [1000, 10000, 100000]
+num_neuron_train: [10, 50, 100]
+seed: ...
+
+# model
+kernel_size: [1, 3, 9, 17, 33],
+num_hidden: [16, 32, 64, 128, 256, 512]
+shared: [(True, True), (False, False)]
+learn_coeff: [(True, True), (False, False)]
+learn_mean: [(True, True), (False, False)]
+learn_var: [(True, True), (False, False)]
+isotropic: [(True, True), (False, False)]
+num_basis: [(1, 1), (2, 2), (4, 4), (8, 8)]
+seed: ...
+
+# training
+batch_size: [1, 16, 32]
+batch_length: [64, 128]
+learning_rate: [1e-3, 3e-3, 1e-2, 3e-2]
+num_worse: [10, 50, 100]
+weight_kl: [0 or geomspace(1e-9, 1e0)]
+weight_time: [0 or geomspace(1e-9, 1e0)]
+weight_entropy: [0 or geomspace(1e-9, 1e0)]
+seed: ...
+
+"""
+

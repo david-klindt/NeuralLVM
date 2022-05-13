@@ -22,7 +22,7 @@ class Trainer:
             z_test=None,
             label_train=None,
             label_test=None,
-            num_steps=20000,
+            num_steps=100000,
             num_log_step=100,
             batch_size=16,
             batch_length=128,
@@ -257,6 +257,8 @@ class Trainer:
         output['encoder_loss'] = encoder_loss.item()
         output['corrs'] = corrs
         output['H'] = entropy.item()
+        output['acc_train'] = accuracy_train
+        output['acc_test'] = accuracy_test
         output['time'] = time.time() - t0
 
         return output

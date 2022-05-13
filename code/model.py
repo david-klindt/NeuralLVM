@@ -118,7 +118,10 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
             num_neuron,
             feature_type='gauss',  # {'gauss', 'fourier'}
             shared=True,
-            flexibility=(True, True, True),  # learn: coefficients, means, variances
+            learn_coeff=True,
+            learn_mean=False,
+            learn_var=True,
+            isotropic=True,  # make Gaussians round
             num_basis=1,
             latent_dim=2,
             manifold='torus',  # {'torus', 'euclidean'} eg. 'torus' + latent_dim=1 = S1; 'euclidean' + latent_dim=2 = R2
@@ -129,7 +132,10 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         self.num_neuron = num_neuron
         self.feature_type = feature_type
         self.shared = shared
-        self.flexibility = flexibility
+        self.learn_coeff = learn_coeff
+        self.learn_mean = learn_mean
+        self.learn_var = learn_var
+        self.isotropic = isotropic
         self.num_basis = num_basis
         self.latent_dim = latent_dim
         self.manifold = manifold
@@ -137,7 +143,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         torch.manual_seed(seed)
 
         coeff_shape = (1 if shared else num_neuron, num_basis)
-        parameter_shape = (1 if shared else num_neuron, num_basis, latent_dim)
+        var_shape = (1 if shared else num_neuron, num_basis, 1 if isotropic else latent_dim)
 
         # ToDo(Martin): what are good values here below?
         if feature_type == 'gauss':
@@ -146,7 +152,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
             # mean_init = torch.rand(parameter_shape) * 2 * np.pi - np.pi
             # initialize to evenly spread grid (produces a total of num_basis**latent_dim basis functions)
             mean_init = torch.tensor(get_grid(latent_dim, num_basis))
-            log_var_init = torch.log(torch.ones(parameter_shape) * 10.)
+            log_var_init = torch.log(torch.ones(var_shape) * 10.)
             coeff_init[:, 0] += 1  # initialize close to single bump
         elif feature_type == 'fourier':
             raise ValueError("not yet fully implemented")
@@ -211,7 +217,10 @@ class Decoder(torch.nn.Module):
             latent_manifolds=('T1', 'R2'),  # this gives S1 and R2 latent spaces
             feature_type=('gauss', 'gauss'),  # {'gauss', 'fourier'}
             shared=(True, True),
-            flexibility=((True, True, True), (True, True, True)),  # learn: coefficients, means, variances
+            learn_coeff=(True, True),
+            learn_mean=(False, False),
+            learn_var=(True, True),
+            isotropic=(True, True),
             num_basis=(1, 16),  # ignored for feature_type='bump'
             seed=2093857,
     ):
@@ -221,7 +230,10 @@ class Decoder(torch.nn.Module):
         self.latent_manifolds = latent_manifolds
         self.feature_type = feature_type
         self.shared = shared
-        self.flexibility = flexibility
+        self.learn_coeff = learn_coeff
+        self.learn_mean = learn_mean
+        self.learn_var = learn_var
+        self.isotropic = isotropic
         self.num_basis = num_basis
         torch.manual_seed(seed)
 
@@ -244,13 +256,15 @@ class Decoder(torch.nn.Module):
                 raise ValueError("latent manifold not yet implemented.")
             self.feature_bases_train.append(
                 FeatureBasis(num_neuron_train, feature_type=feature_type[i],  shared=shared[i],
-                             flexibility=flexibility[i], num_basis=num_basis[i], latent_dim=latent_dim,
+                             learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_mean[i],
+                             isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
                              manifold=manifold, seed=seed)
             )
             if not self.shared[i]:
                 self.feature_bases_test.append(
                     FeatureBasis(num_neuron_test, feature_type=feature_type[i], shared=shared[i],
-                                 flexibility=flexibility[i], num_basis=num_basis[i], latent_dim=latent_dim,
+                                 learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_mean[i],
+                                 isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
                                  manifold=manifold, seed=seed)
                 )
 
@@ -316,7 +330,10 @@ class Model(torch.nn.Module):
             latent_manifolds=('T1', 'R2'),  # this gives S1 and R2 latent spaces
             feature_type=('gauss', 'gauss'),  # {'gauss', 'fourier'}
             shared=(True, True),
-            flexibility=((True, True, True), (True, True, True)),  # learn: coefficients, means, variances
+            learn_coeff=(True, True),
+            learn_mean=(False, False),
+            learn_var=(True, True),
+            isotropic=(True, True),
             num_basis=(1, 1),  # for 1 and 'gauss' = 'bump' model, careful this scales as num_basis**n (e.g. n=2 for R2)
             seed=1293842,
     ):
@@ -328,7 +345,10 @@ class Model(torch.nn.Module):
         self.latent_manifolds = latent_manifolds
         self.feature_type = feature_type
         self.shared = shared
-        self.flexibility = flexibility
+        self.learn_coeff = learn_coeff
+        self.learn_mean = learn_mean
+        self.learn_var = learn_var
+        self.isotropic = isotropic
         self.num_basis = num_basis
         self.seed = seed
 
@@ -338,7 +358,8 @@ class Model(torch.nn.Module):
         )
         self.decoder = Decoder(
             num_neuron_train, num_neuron_test, latent_manifolds=latent_manifolds, feature_type=feature_type,
-            shared=shared, flexibility=flexibility, num_basis=num_basis, seed=seed
+            shared=shared, learn_coeff=learn_coeff, learn_mean=learn_mean, learn_var=learn_var, isotropic=isotropic,
+            num_basis=num_basis, seed=seed
         )
 
     def forward(self, x, z=None):

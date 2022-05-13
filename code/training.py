@@ -21,10 +21,10 @@ class Trainer:
             z_test=None,
             num_steps=10000,
             num_log_step=100,
-            batch_size=32,
+            batch_size=16,
             batch_length=128,
             seed=23412521,
-            learning_rate=1e-1,
+            learning_rate=3e-3,
             num_worse=50,  # if loss doesn't improve X times, stop.
             weight_kl=1e-6,
             weight_time=0,

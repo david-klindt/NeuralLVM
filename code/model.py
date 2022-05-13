@@ -222,6 +222,7 @@ class Decoder(torch.nn.Module):
             learn_var=(True, True),
             isotropic=(True, True),
             num_basis=(1, 16),  # ignored for feature_type='bump'
+            nonlinearity='exp',
             seed=2093857,
     ):
         super(Decoder, self).__init__()
@@ -235,6 +236,7 @@ class Decoder(torch.nn.Module):
         self.learn_var = learn_var
         self.isotropic = isotropic
         self.num_basis = num_basis
+        self.nonlinearity = nonlinearity
         torch.manual_seed(seed)
 
         # Get latent manifolds
@@ -258,7 +260,7 @@ class Decoder(torch.nn.Module):
                 FeatureBasis(num_neuron_train, feature_type=feature_type[i],  shared=shared[i],
                              learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
                              isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
-                             manifold=manifold, seed=seed)
+                             manifold=manifold, nonlinearity=nonlinearity, seed=seed)
             )
             if not self.shared[i]:
                 self.feature_bases_test.append(
@@ -335,6 +337,7 @@ class Model(torch.nn.Module):
             learn_var=(True, True),
             isotropic=(True, True),
             num_basis=(1, 1),  # for 1 and 'gauss' = 'bump' model, careful this scales as num_basis**n (e.g. n=2 for R2)
+            nonlinearity='exp',
             seed=1293842,
     ):
         super(Model, self).__init__()
@@ -350,6 +353,7 @@ class Model(torch.nn.Module):
         self.learn_var = learn_var
         self.isotropic = isotropic
         self.num_basis = num_basis
+        self.nonlinearity = nonlinearity
         self.seed = seed
 
         self.encoder = Encoder(
@@ -359,7 +363,7 @@ class Model(torch.nn.Module):
         self.decoder = Decoder(
             num_neuron_train, num_neuron_test, latent_manifolds=latent_manifolds, feature_type=feature_type,
             shared=shared, learn_coeff=learn_coeff, learn_mean=learn_mean, learn_var=learn_var, isotropic=isotropic,
-            num_basis=num_basis, seed=seed
+            num_basis=num_basis, nonlinearity=nonlinearity, seed=seed
         )
 
     def forward(self, x, z=None):

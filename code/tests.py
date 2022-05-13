@@ -100,6 +100,7 @@ def test_training(
         learn_var=(True, True),
         isotropic=(True, True),
         num_basis=(num_basis, num_basis),
+        nonlinearity=('exp', 'exp'),
         seed=1293842,
     ).to(device)
     print('model', ensembler)
@@ -151,6 +152,7 @@ def test_training(
     output = trainer.train()
 
     # ToDo(pickle save output file in model_ckpt folder)
+    del output['q_z'], output['p_z']  # those cannot be pickled (pickle Rick!!!)
 
     # ToDo(fix analysis code for refactored model)
     #analysis(ensembler, simulator, trainer, z_test)
@@ -190,6 +192,7 @@ learn_mean: [(True, True), (False, False)]
 learn_var: [(True, True), (False, False)]
 isotropic: [(True, True), (False, False)]
 num_basis: [(1, 1), (2, 2), (4, 4), (8, 8)]
+nonlinearity: [('exp', 'exp'), ('softplus', 'softplus')]
 seed: ...
 
 # training

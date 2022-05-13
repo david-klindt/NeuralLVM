@@ -6,6 +6,7 @@ from NeuralLVM.code.utils import compute_slowness_loss
 from NeuralLVM.code.utils import angle2vector
 from NeuralLVM.code.utils import check_grad
 from NeuralLVM.code.utils import get_correlation
+from NeuralLVM.code.clustering import get_accuracy
 
 
 
@@ -19,13 +20,15 @@ class Trainer:
             mode='full',
             z_train=None,
             z_test=None,
-            num_steps=10000,
+            label_train=None,
+            label_test=None,
+            num_steps=20000,
             num_log_step=100,
             batch_size=16,
             batch_length=128,
             seed=23412521,
             learning_rate=3e-3,
-            num_worse=50,  # if loss doesn't improve X times, stop.
+            num_worse=100,  # if loss doesn't improve X times, stop.
             weight_kl=1e-6,
             weight_time=0,
             weight_entropy=0,
@@ -48,6 +51,8 @@ class Trainer:
             self.z_test = torch.Tensor(z_test).to(device)
         else:
             self.z_test = None
+        self.label_train = label_train
+        self.label_test = label_test
         self.num_neuron_prediction = data_train.shape[0]  # all neurons
         self.neurons_train_ind = neurons_train_ind
         self.neurons_test_ind = np.logical_not(neurons_train_ind)
@@ -107,8 +112,10 @@ class Trainer:
                     output['responses_test'], y_test).sum((1, 2)).mean()
             ) / 2
 
-            ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
-            entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))
+            ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
+            entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
+            ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
+            entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
 
             if self.mode == 'encoder':
                 loss = encoder_loss
@@ -153,15 +160,27 @@ class Trainer:
                 poisson_loss_test = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
                                            output['responses_test'], y_test).sum((1, 2)).mean()
 
-                ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
-                entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))
+                ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
+                entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
+                ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
+                entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
+                if self.label_train is None:
+                    accuracy_train = 0
+                else:
+                    accuracy_train = get_accuracy(self.label_train, ensemble_weights_train.argmax(1))
+                if self.label_test is None:
+                    accuracy_test = 0
+                else:
+                    accuracy_test = get_accuracy(self.label_test, ensemble_weights_train.argmax(1))
+
                 corrs = get_correlation(
                     y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])
                 print('run=%s, running_loss=%.4e, negLLH_train=%.4e, negLLH_test=%.4e, KL=%.4e, '
-                      'Slowness_loss=%.4e, encoder_loss=%.4e, corr=%.6f, H=%.4e, time=%.2f' % (
+                      'Slowness_loss=%.4e, encoder_loss=%.4e, corr=%.6f, H=%.4e, '
+                      'acc_train=%.3f, acc_test=%.3f, time=%.2f' % (
                       i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
                       kld_loss.item(), slowness_loss.item(), encoder_loss.item(), np.nanmean(corrs),
-                      entropy.item(), time.time() - t0), file=self.log_file)
+                      entropy.item(), accuracy_train, accuracy_test, time.time() - t0), file=self.log_file)
 
                 # early stopping
                 loss_track.append(running_loss)
@@ -185,7 +204,7 @@ class Trainer:
         y_train = self.data_test[self.neurons_train_ind]
         y_test = self.data_test[self.neurons_test_ind]
 
-        output = self.model(y_train, z=z)
+        output = self.model(y_train, z=z)[None]
 
         kld_loss, slowness_loss, encoder_loss = 0.0, 0.0, 0.0
         for j, m in enumerate(self.model.latent_manifolds):
@@ -201,18 +220,29 @@ class Trainer:
         poisson_loss_test = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
             output['responses_test'], y_test).sum((1, 2)).mean()
 
-        ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
-        entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))
+        ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
+        entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
+        ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
+        entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
+        if self.label_train is None:
+            accuracy_train = 0
+        else:
+            accuracy_train = get_accuracy(self.label_train, ensemble_weights_train.argmax(1))
+        if self.label_test is None:
+            accuracy_test = 0
+        else:
+            accuracy_test = get_accuracy(self.label_test, ensemble_weights_train.argmax(1))
 
         corrs = get_correlation(
             y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])
 
         print('\nFinal Performance:\n',
             'run=%s, running_loss=%.4e, negLLH_train=%.4e, negLLH_test=%.4e, KL=%.4e, '
-            'Slowness_loss=%.4e, encoder_loss=%.4e, corr=%.6f, H=%.4e, time=%.2f' % (
+            'Slowness_loss=%.4e, encoder_loss=%.4e, corr=%.6f, H=%.4e, '
+            'acc_train=%.3f, acc_test=%.3f, time=%.2f' % (
             i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
             kld_loss.item(), slowness_loss.item(), encoder_loss.item(), np.nanmean(corrs),
-            entropy.item(), time.time() - t0), file=self.log_file
+            entropy.item(), accuracy_train, accuracy_test, time.time() - t0), file=self.log_file
         )
         output['run'] = i
         output['running_loss'] = running_loss.item()

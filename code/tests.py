@@ -112,6 +112,12 @@ def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
     data_test = simulator(z_test).detach()
     simulator.noise = True
 
+    label_train = np.zeros(num_neuron_train * num_ensemble)
+    label_test = np.zeros(num_neuron_test * num_ensemble)
+    for i in range(num_ensemble):
+        label_train[i * num_neuron_train: (i + 1) * num_neuron_train] = i
+        label_test[i * num_neuron_test: (i + 1) * num_neuron_test] = i
+
     trainer = Trainer(
         model=ensembler,
         data_train=data_train.cpu().numpy(),
@@ -120,6 +126,8 @@ def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
         mode='full',
         z_train=None,
         z_test=None,
+        label_train=label_train,
+        label_test=label_test,
         seed=923683,
     )
     trainer.train()

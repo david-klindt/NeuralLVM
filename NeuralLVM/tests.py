@@ -1,5 +1,12 @@
 import torch
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+import pickle
+try:
+    import fire  # allows command line calls of functions similar to argparse
+except:
+    pass
+from utils_experiments import get_exp_name, Nop
 from utils import angle2vector_flat
 from utils import sum_pairs
 from utils import count_parameters
@@ -7,7 +14,6 @@ from utils import torch_circular_gp
 from utils import analysis
 from model import Model
 from training import Trainer
-import fire
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -68,32 +74,44 @@ class StochasticNeurons(torch.nn.Module):
         return responses
 
 def test_training(
-    kernel_size=9,
-    batch_length=64,
-    num_hidden=256,
-    weight_time=0,
-    weight_entropy=0,
-    num_worse=50,
-    weight_kl=1e-6,
-    learning_rate=3e-3,
-    batch_size=16,
-    num_ensemble=2,
-    num_neuron_train=50,
-    num_neuron_test=50,
-    latent_dim=2,
-    z_smoothness=3,
-    num_basis=1,
-    shared=True,
-    learn_coeff=True,
-    learn_mean=False,
-    learn_var=True,
+    kernel_size: int = 9,
+    batch_length: int = 64,
+    num_hidden: int = 256,
+    weight_time: int = 0,
+    weight_entropy: int = 0,
+    num_worse: int = 50,
+    weight_kl: float = 1e-6,
+    learning_rate: float = 3e-3,
+    batch_size: int = 16,
+    num_ensemble: int = 2, # fixed
+    num_neuron_train: int = 50,  # fixed
+    num_neuron_test: int = 50,  # fixed
+    latent_dim: int = 2, # fixed
+    z_smoothness: int = 3,   # fixed
+    num_basis: int = 1,
+    shared: bool = True,
+    learn_coeff: bool = True,
+    learn_mean: bool = False,
+    learn_var: bool = True,
     isotropic=True,
-    num_sample=10000,
-    num_test=1000,
-    feature_type="gauss",
-    latent_manifolds="T2",
-    seed=0,
+    num_sample: int = 10000,
+    num_test: int = 1000,  # fixed 
+    feature_type: str = "gauss",   # fixed
+    latent_manifolds: str = "T2", # fixed
+    seed: int = 0,
+    name: str = '',
+    writer: bool = True,
 ):
+    # bookkeeping
+    args = locals()
+    default_args = dict(zip(args.keys(), test_training.__defaults__))
+    assert len(args) == len(default_args)
+    exp_name = get_exp_name(default_args, args)
+    log_dir = f'../model_ckpt/{exp_name}'
+    writer = SummaryWriter(log_dir=log_dir) if writer else Nop
+    for k, v in args.items():
+        writer.add_text(k, str(v))
+    
     num_neuron = num_neuron_train + num_neuron_test
     neurons_train_ind = np.zeros(num_neuron * num_ensemble, dtype=bool)
     ind = np.random.choice(
@@ -164,9 +182,15 @@ def test_training(
         log_dir="model_ckpt",
         log_training=True,
         seed=seed,
+        writer=writer,
     )
     output = trainer.train()
 
+    # more bookkeeping 
+    output = {**args, **output}  # document args as well
+    with open(f'{log_dir}/output.pickle', 'wb') as handle:
+        pickle.dump(output, handle)
+    
     # ToDo(pickle save output file in model_ckpt folder)
 
     # ToDo(fix analysis code for refactored model)
@@ -176,8 +200,7 @@ def test_training(
 
 
 if __name__ == "__main__":
-    # fire.Fire()
-    test_training()
+    fire.Fire()
 
 """
 Hyperparameter Search:
@@ -201,7 +224,7 @@ num_log_step=100
 # data (this is more to check)
 num_sample: [1000, 10000, 100000]
 num_neuron_train: [10, 50, 100]
-seed: ...
+seed: ...   # do 5
 
 # model
 kernel_size: [1, 3, 9, 17, 33],

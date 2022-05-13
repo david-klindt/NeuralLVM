@@ -33,6 +33,8 @@ class Trainer:
             weight_entropy=0,
             log_dir='model_ckpt',
             log_training=False,
+            writer=None,
+
     ):
         if log_training:
             os.makedirs(log_dir, exist_ok=True)
@@ -69,6 +71,7 @@ class Trainer:
         os.makedirs(log_dir, exist_ok=True)
         self.save_path = os.path.join(log_dir, 'model.pth')
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        self.writer = writer
 
     def train(self):
         t0 = time.time()
@@ -203,7 +206,21 @@ class Trainer:
                           i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
                           kld_loss.item(), slowness_loss.item(), encoder_loss.item(), np.nanmean(corrs),
                           entropy.item(), accuracy_train, accuracy_test, time.time() - t0), file=self.log_file)
-
+                track = {
+                    "run": i,
+                    "running_loss": running_loss,
+                    "negLLH_train": poisson_loss_train,
+                    "negLLH_test": poisson_loss_test,
+                    "KL": kld_loss,
+                    "Slowness_loss": slowness_loss,
+                    "corr": np.nanmean(corrs),
+                    "H": entropy,
+                    "time": time.time() - t0,
+                }
+                if self.writer is not None:
+                    for key, val in track.items():
+                        self.writer.add_scalar(key, val, i)
+                        
                 # early stopping
                 loss_track.append(running_loss)
                 if loss_track[-1] > np.min(loss_track):

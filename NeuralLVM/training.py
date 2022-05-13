@@ -246,7 +246,7 @@ class Trainer:
 
         output = self.model(y_train, z=z)
 
-        kld_loss, slowness_loss, encoder_loss = [torch.tensor(0,) for _ in range(3)]
+        kld_loss, slowness_loss, encoder_loss = [torch.tensor(0, device=device) for _ in range(3)]
         for j, m in enumerate(self.model.latent_manifolds):
             # sum over time and neurons, mean over batch (same below for Poisson LLH)
             kld_loss = kld_loss + torch.distributions.kl.kl_divergence(
@@ -254,9 +254,10 @@ class Trainer:
             # but see (https://github.com/nicola-decao/s-vae-pytorch/blob/master/examples/mnist.py#L144)
             slowness_loss = slowness_loss + \
                 compute_slowness_loss(output['mean'][j])
-            # encoder_loss = encoder_loss + \
-            #     torch.sum(
-            #         (angle2vector(z) - angle2vector(output['z'][i])) ** 2)   # I commented this because z is None!
+            if z is not None:
+                encoder_loss = encoder_loss + \
+                    torch.sum(
+                        (angle2vector(z) - angle2vector(output['z'][i])) ** 2)   # I commented this because z is None!
 
         poisson_loss_train = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
             output['responses_train'], y_train).sum((1, 2)).mean()

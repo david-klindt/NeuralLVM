@@ -187,6 +187,8 @@ def test_training(
     output = trainer.train()
 
     # more bookkeeping 
+    output['qz'] = None  # enable file saving and loading
+    output['p_z'] = None  # enable file saving and loading
     output = {**args, **output}  # document args as well
     with open(f'{log_dir}/output.pickle', 'wb') as handle:
         pickle.dump(output, handle)

@@ -4,7 +4,7 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.feature_selection import mutual_info_regression
 import torch
 from itertools import permutations
-from .utils import torch_circular_gp
+from NeuralLVM.utils import torch_circular_gp
 
 
 

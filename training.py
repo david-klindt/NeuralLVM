@@ -3,9 +3,9 @@ import time
 import os
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-from .utils import compute_slowness_loss
-from .utils import angle2vector
-from .utils import check_grad
+from NeuralLVM.utils import compute_slowness_loss
+from NeuralLVM.utils import angle2vector
+from NeuralLVM.utils import check_grad
 
 
 

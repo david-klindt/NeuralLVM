@@ -3,8 +3,8 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.feature_selection import mutual_info_regression
 import torch
 from itertools import permutations
-from NeuralLVM.code.utils import torch_circular_gp
-from NeuralLVM.code.data import data_generation
+from NeuralLVM.utils import torch_circular_gp
+from NeuralLVM.data import data_generation
 
 
 

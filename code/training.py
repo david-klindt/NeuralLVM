@@ -167,11 +167,13 @@ class Trainer:
                 if self.label_train is None:
                     accuracy_train = 0
                 else:
-                    accuracy_train = get_accuracy(self.label_train, ensemble_weights_train.argmax(1))
+                    accuracy_train = get_accuracy(
+                        self.label_train, ensemble_weights_train.detach().cpu().numpy().argmax(1))
                 if self.label_test is None:
                     accuracy_test = 0
                 else:
-                    accuracy_test = get_accuracy(self.label_test, ensemble_weights_train.argmax(1))
+                    accuracy_test = get_accuracy(
+                        self.label_test, ensemble_weights_train.detach().cpu().numpy().argmax(1))
 
                 corrs = get_correlation(
                     y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])
@@ -227,11 +229,13 @@ class Trainer:
         if self.label_train is None:
             accuracy_train = 0
         else:
-            accuracy_train = get_accuracy(self.label_train, ensemble_weights_train.argmax(1))
+            accuracy_train = get_accuracy(
+                self.label_train, ensemble_weights_train.detach().cpu().numpy().argmax(1))
         if self.label_test is None:
             accuracy_test = 0
         else:
-            accuracy_test = get_accuracy(self.label_test, ensemble_weights_train.argmax(1))
+            accuracy_test = get_accuracy(
+                self.label_test, ensemble_weights_train.detach().cpu().numpy().argmax(1))
 
         corrs = get_correlation(
             y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])

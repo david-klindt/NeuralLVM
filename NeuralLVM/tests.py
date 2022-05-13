@@ -98,16 +98,18 @@ def test_training(
     num_test: int = 1000,  # fixed 
     feature_type: str = "gauss",   # fixed
     latent_manifolds: str = "T2", # fixed
+    num_steps: int = 100000,  # fixed (debugging only)
     seed: int = 0,
     name: str = '',
     writer: bool = True,
+    base_path='/projects/NeuralLVM/NeuralLVM/'
 ):
     # bookkeeping
     args = locals()
     default_args = dict(zip(args.keys(), test_training.__defaults__))
     assert len(args) == len(default_args)
     exp_name = get_exp_name(default_args, args)
-    log_dir = f'../model_ckpt/{exp_name}'
+    log_dir = base_path + f'/model_ckpt/{exp_name}'
     writer = SummaryWriter(log_dir=log_dir) if writer else Nop
     for k, v in args.items():
         writer.add_text(k, str(v))
@@ -170,7 +172,7 @@ def test_training(
         z_test=None,
         label_train=label_train,
         label_test=label_test,
-        num_steps=100000,
+        num_steps=num_steps,
         num_log_step=100,
         batch_size=batch_size,
         batch_length=batch_length,
@@ -185,6 +187,13 @@ def test_training(
         writer=writer,
     )
     output = trainer.train()
+    for key, val in output.items():
+        if isinstance(val, int) or isinstance(val, float):
+            writer.add_scalar('final/key', val)
+
+        if torch.is_tensor(val):
+            if val.shape == 1:
+                writer.add_scalar('final/key', val)
 
     # more bookkeeping 
     output = {**args, **output}  # document args as well
@@ -223,7 +232,7 @@ num_log_step=100
 
 # data (this is more to check)
 num_sample: [1000, 10000, 100000]
-num_neuron_train: [10, 50, 100]
+num_neuron_train: [10, 50, 100]  # do 50
 seed: ...   # do 5
 
 # model

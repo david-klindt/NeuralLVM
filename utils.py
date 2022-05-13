@@ -1,5 +1,4 @@
 import torch
-from torch import Variable
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.feature_selection import mutual_info_regression
@@ -38,12 +37,6 @@ def sum_pairs(x):
     for i in range(x.shape[1] // 2):
         sum.append(torch.sum(x[:, i * 2:(i + 1) * 2], dim=1))
     return torch.stack(sum, 1)
-
-
-def reparameterize_manual(mu, logvar):
-    std = logvar.div(2).exp()
-    eps = Variable(std.data.new(std.size()).normal_())
-    return mu + std * eps
 
 
 def compute_kld_to_normal(mu, logvar):

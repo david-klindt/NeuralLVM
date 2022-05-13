@@ -67,7 +67,7 @@ class Trainer:
 
     def train(self):
         t0 = time.time()
-        device = self.model.device
+        device = self.data_train.device
         worse = 0  # counter for early stopping
         running_loss = 0.0
         loss_track = []

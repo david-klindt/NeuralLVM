@@ -124,8 +124,8 @@ def test_simulation():
 
 
 def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
-                  latent_dim=2, z_smoothness=3, num_sample=100000,
-                  num_test=10000, feature_type='bump'):
+                  latent_dim=2, z_smoothness=3, num_basis=1,
+                  num_sample=10000, num_test=1000):
     num_neuron = num_neuron_train + num_neuron_test
     neurons_train_ind = np.zeros(num_neuron * num_ensemble, dtype=bool)
     ind = np.random.choice(
@@ -139,13 +139,13 @@ def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
     ensembler = Model(
         num_neuron_train=num_neuron_train * num_ensemble,
         num_neuron_test=num_neuron_test * num_ensemble,
-        kernel_size=33,
+        kernel_size=9,
         num_hidden=256,
         latent_manifolds=('T2', 'T2'),
-        feature_type=(feature_type, feature_type, feature_type),
+        feature_type=('gauss', 'gauss'),
         shared=(True, True),
         flexibility=((False, False, True), (False, False, True)),
-        num_basis=(1, 1),
+        num_basis=(num_basis, num_basis),
         seed=1293842,
     ).to(device)
     print('model', ensembler)
@@ -177,7 +177,7 @@ def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
         batch_size=16,
         batch_length=128,
         seed=923683,
-        learning_rate=1e-2
+        learning_rate=3e-3
     )
     trainer.train()
     analysis(ensembler, simulator, trainer, z_test)

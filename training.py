@@ -20,13 +20,13 @@ class Trainer:
             z_train=None,
             z_test=None,
             num_steps=5000,
-            num_log_step=50,#0,
+            num_log_step=50,
             batch_size=16,
             batch_length=128,
             seed=23412521,
-            learning_rate=1e-2,
-            num_worse=100,  # if loss doesn't improve X times, stop.
-            weight_kl=1e-6,#1e-2,
+            learning_rate=3e-3,
+            num_worse=50,  # if loss doesn't improve X times, stop.
+            weight_kl=1e-6,
             weight_time=0,
             weight_entropy=0,
             log_dir='model_ckpt',
@@ -90,8 +90,8 @@ class Trainer:
             kld_loss, slowness_loss, encoder_loss = torch.zeros(1), torch.zeros(1), torch.zeros(1)
             for j, m in enumerate(self.model.latent_manifolds):
                 # sum over time and neurons, mean over batch (same below for Poisson LLH)
-                kld_loss = kld_loss# + torch.distributions.kl.kl_divergence(
-                #    output['q_z'][j], output['p_z'][j]).sum((1, 2)).mean()
+                kld_loss = kld_loss + torch.distributions.kl.kl_divergence(
+                    output['q_z'][j], output['p_z'][j]).sum((1, 2)).mean()
                 # but see (https://github.com/nicola-decao/s-vae-pytorch/blob/master/examples/mnist.py#L144)
                 slowness_loss = slowness_loss + compute_slowness_loss(output['mean'][j])
                 if z is not None:
@@ -136,17 +136,17 @@ class Trainer:
                 kld_loss, slowness_loss, encoder_loss = torch.zeros(1), torch.zeros(1), torch.zeros(1)
                 for j, m in enumerate(self.model.latent_manifolds):
                     # sum over time and neurons, mean over batch (same below for Poisson LLH)
-                    kld_loss = kld_loss #+ torch.distributions.kl.kl_divergence(
-                    #    output['q_z'][j], output['p_z'][j]).sum((1, 2)).mean()
+                    kld_loss = kld_loss + torch.distributions.kl.kl_divergence(
+                        output['q_z'][j], output['p_z'][j]).sum((1, 2)).mean()
                     # but see (https://github.com/nicola-decao/s-vae-pytorch/blob/master/examples/mnist.py#L144)
                     slowness_loss = slowness_loss + compute_slowness_loss(output['mean'][j])
                     if z is not None:
                         encoder_loss = encoder_loss + torch.sum((angle2vector(z) - angle2vector(output['z'][i])) ** 2)
 
-                poisson_loss_train = torch.zeros(1)#torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
-                #                           output['responses_train'], y_train).sum((1, 2)).mean()
-                poisson_loss_test = torch.zeros(1)#torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
-                #                           output['responses_test'], y_test).sum((1, 2)).mean()
+                poisson_loss_train = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
+                                           output['responses_train'], y_train).sum((1, 2)).mean()
+                poisson_loss_test = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
+                                           output['responses_test'], y_test).sum((1, 2)).mean()
 
                 ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
                 entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))
@@ -190,16 +190,16 @@ class Trainer:
         kld_loss, slowness_loss, encoder_loss = 0.0, 0.0, 0.0
         for j, m in enumerate(self.model.latent_manifolds):
             # sum over time and neurons, mean over batch (same below for Poisson LLH)
-            kld_loss = kld_loss# + torch.distributions.kl.kl_divergence(
-            #    output['q_z'][j], output['p_z'][j]).sum((1, 2)).mean()
+            kld_loss = kld_loss + torch.distributions.kl.kl_divergence(
+                output['q_z'][j], output['p_z'][j]).sum((1, 2)).mean()
             # but see (https://github.com/nicola-decao/s-vae-pytorch/blob/master/examples/mnist.py#L144)
             slowness_loss = slowness_loss + compute_slowness_loss(output['mean'][j])
             encoder_loss = encoder_loss + torch.sum((angle2vector(z) - angle2vector(output['z'][i])) ** 2)
 
-        poisson_loss_train = torch.zeros(1)#torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
-        #    output['responses_train'], y_train).sum((1, 2)).mean()
-        poisson_loss_test = torch.zeros(1)#torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
-        #    output['responses_test'], y_test).sum((1, 2)).mean()
+        poisson_loss_train = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
+            output['responses_train'], y_train).sum((1, 2)).mean()
+        poisson_loss_test = torch.nn.PoissonNLLLoss(log_input=False, reduction='none')(
+            output['responses_test'], y_test).sum((1, 2)).mean()
 
         ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
         entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))

@@ -2,6 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.feature_selection import mutual_info_regression
+from inference import inference
 from model import *
 
 
@@ -96,6 +97,13 @@ def torch_circular_gp(num_sample, num_dim, smoothness):
     z = torch.randn(num_sample, num_dim) / smoothness
     z = torch.cumsum(z, 0)
     return vector2angle(angle2vector(z))
+
+
+def get_grid(dim, num):
+    """makes evenly sampled grid [-pi, pi] of num points in each dim."""
+    single = np.linspace(-np.pi, np.pi, num)
+    out = np.meshgrid(*[single] * dim)
+    return np.stack(out, -1).reshape(num ** dim, dim)
 
 
 def analysis(ensembler, model, trainer, z_test, do_inference=False):

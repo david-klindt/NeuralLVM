@@ -95,16 +95,10 @@ class Encoder(torch.nn.Module):
             if m[0] == 'T':  # if latent is on sphere, output vector in 2D and normalize
                 mean = mean.view(batch_size, length, latent_dim, 2)  # B x L x D x V
                 mean = mean / mean.norm(dim=3, keepdim=True)
-                """
                 kappa = torch.nn.functional.softplus(logvar) + 1  # the `+ 1` prevent collapsing behaviors (from sVAE)
                 q_z, p_z = reparameterize('vmf', mean, kappa)
                 z = q_z.rsample()  # B x L x D x V
-                print(z.shape)
                 z = vector2angle(z)  # B x L x D
-                print(mean.shape, z.shape, vector2angle(mean).shape)
-                #"""
-                q_z, p_z = None, None
-                z = vector2angle(mean)
             else:
                 var = torch.exp(logvar)
                 q_z, p_z = reparameterize('normal', mean, var)
@@ -122,10 +116,10 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
     def __init__(
             self,
             num_neuron,
-            feature_type='bump',  # {'bump', 'gauss', 'fourier'}
+            feature_type='gauss',  # {'gauss', 'fourier'}
             shared=True,
             flexibility=(True, True, True),  # learn: coefficients, means, variances
-            num_basis=16,  # ignored for feature_type='bump'
+            num_basis=1,
             latent_dim=2,
             manifold='torus',  # {'torus', 'euclidean'} eg. 'torus' + latent_dim=1 = S1; 'euclidean' + latent_dim=2 = R2
             nonlinearity='exp',
@@ -136,9 +130,6 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         self.feature_type = feature_type
         self.shared = shared
         self.flexibility = flexibility
-        if feature_type == 'bump' and num_basis > 1:
-            print('for feature_type bump, changing to num_basis=1')
-            num_basis = 1
         self.num_basis = num_basis
         self.latent_dim = latent_dim
         self.manifold = manifold
@@ -149,20 +140,14 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         parameter_shape = (1 if shared else num_neuron, num_basis, latent_dim)
 
         # ToDo(Martin): what are good values here below?
-        if feature_type == 'bump':
-            #coeff_init = torch.zeros(coeff_shape)  # this goes through exp to stay positive
-            coeff_init = torch.ones(coeff_shape)
-            mean_init = torch.zeros(parameter_shape)
-            #log_var_init = torch.ones(parameter_shape) * np.log(10)
-            log_var_init = torch.ones(1, 1, 1) * np.log(10)
-        elif feature_type == 'gauss':
-            coeff_init = torch.randn(coeff_shape) * 1e-3
-            mean_init = torch.rand(parameter_shape) * 2 * np.pi - np.pi  # initialize randomly in [-pi, pi]
-            log_var_init = torch.ones(parameter_shape) * 2 * np.pi / num_basis
-            # initialize as single bump:
-            coeff_init[0] += 1
-            mean_init[0] *= 0
-            log_var_init[0] *= np.log(10)
+        if feature_type == 'gauss':
+            coeff_init = torch.randn(coeff_shape) * 1e-2
+            # initialize randomly in [-pi, pi]
+            # mean_init = torch.rand(parameter_shape) * 2 * np.pi - np.pi
+            # initialize to evenly spread grid (produces a total of num_basis**latent_dim basis functions)
+            mean_init = torch.tensor(get_grid(latent_dim, num_basis))
+            log_var_init = torch.log(torch.ones(parameter_shape) * 10.)
+            coeff_init[:, 0] += 1  # initialize close to single bump
         elif feature_type == 'fourier':
             raise ValueError("not yet fully implemented")
             coeff_shape = (num_basis * 2 + 1, 1 if shared else num_neuron)
@@ -191,13 +176,10 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         assert rf_shape[1] == self.latent_dim
 
         coeff = self.coeff.detach() if test else self.coeff  # {N, 1} x H
-        if self.feature_type == 'bump':
-            coeff = coeff * 0 + 1
-        #    coeff = torch.exp(coeff)
         mean = self.mean.detach() if test else self.mean  # {N, 1} x H x D
         log_var = self.log_var.detach() if test else self.log_var  # {N, 1} x H x D
 
-        if self.feature_type in ['bump', 'gauss']:
+        if self.feature_type == 'gauss':
             if self.manifold == 'torus':  # add (x V) as last dimension, i.e., embedding angle in 2D
                 z = angle2vector(z)  # B x L x D x V
                 rf = angle2vector(rf)  # N x D x V
@@ -213,11 +195,10 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         elif self.feature_type == 'fourier':
             raise ValueError("not yet fully implemented")
 
-        if True:#self.feature_type != 'bump':  # avoid double exponential for bum
-            if self.nonlinearity == 'exp':
-                response = torch.exp(response)
-            elif self.nonlinearity == 'softplus':
-                response = torch.log(torch.exp(response) + 1)
+        if self.nonlinearity == 'exp':
+            response = torch.exp(response)
+        elif self.nonlinearity == 'softplus':
+            response = torch.log(torch.exp(response) + 1)
 
         return response
 
@@ -228,7 +209,7 @@ class Decoder(torch.nn.Module):
             num_neuron_train,
             num_neuron_test,
             latent_manifolds=('T1', 'R2'),  # this gives S1 and R2 latent spaces
-            feature_type=('bump', 'gauss'),  # {'bump', 'gauss', 'fourier'}
+            feature_type=('gauss', 'gauss'),  # {'gauss', 'fourier'}
             shared=(True, True),
             flexibility=((True, True, True), (True, True, True)),  # learn: coefficients, means, variances
             num_basis=(1, 16),  # ignored for feature_type='bump'
@@ -309,6 +290,7 @@ class Decoder(torch.nn.Module):
                 responses_test.append(
                     self.feature_bases_test[i](z[i].detach(), self.receptive_fields_test[i], test=False)
                 )
+        # ToDo(add shared latents)
         responses_train = torch.stack(responses_train, dim=3)  # B x L x N x E
         responses_test = torch.stack(responses_test, dim=3)  # B x L x N x E
         ensemble_weights_train = torch.nn.functional.softmax(
@@ -332,10 +314,10 @@ class Model(torch.nn.Module):
             kernel_size=9,
             num_hidden=256,
             latent_manifolds=('T1', 'R2'),  # this gives S1 and R2 latent spaces
-            feature_type=('bump', 'gauss'),  # {'bump', 'gauss', 'fourier'}
+            feature_type=('gauss', 'gauss'),  # {'gauss', 'fourier'}
             shared=(True, True),
             flexibility=((True, True, True), (True, True, True)),  # learn: coefficients, means, variances
-            num_basis=(1, 16),  # ignored for feature_type='bump'
+            num_basis=(1, 1),  # for 1 and 'gauss' = 'bump' model, careful this scales as num_basis**n (e.g. n=2 for R2)
             seed=1293842,
     ):
         super(Model, self).__init__()
@@ -366,12 +348,12 @@ class Model(torch.nn.Module):
 
         # run model
         output = self.encoder(x)
-        if z is not None:
+        if z is None:
+            responses_train, responses_test = self.decoder(output['z'])
+        else:   # use externally fed-in z
             for a, b in zip(z, output['z']):
                 assert a.shape == b.shape
-            responses_train, responses_test = self.decoder(z)  # use externally fed-in z
-        else:
-            responses_train, responses_test = self.decoder(output['z'])
+            responses_train, responses_test = self.decoder(z)
         output['responses_train'] = responses_train
         output['responses_test'] = responses_test
 

@@ -117,11 +117,7 @@ def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,
         mode='full',
         z_train=None,
         z_test=None,
-        num_steps=5000,
-        batch_size=16,
-        batch_length=128,
         seed=923683,
-        learning_rate=3e-3
     )
     trainer.train()
     analysis(ensembler, simulator, trainer, z_test)

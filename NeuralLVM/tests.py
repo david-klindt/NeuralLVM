@@ -1,12 +1,12 @@
 import torch
 import numpy as np
-from NeuralLVM.utils import angle2vector_flat
-from NeuralLVM.utils import sum_pairs
-from NeuralLVM.utils import count_parameters
-from NeuralLVM.utils import torch_circular_gp
-from NeuralLVM.utils import analysis
-from NeuralLVM.model import Model
-from NeuralLVM.training import Trainer
+from utils import angle2vector_flat
+from utils import sum_pairs
+from utils import count_parameters
+from utils import torch_circular_gp
+from utils import analysis
+from model import Model
+from training import Trainer
 import fire
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -110,7 +110,7 @@ def test_training(
         kernel_size=kernel_size,
         num_hidden=num_hidden,
         latent_manifolds=(latent_manifolds,) * num_ensemble,
-        feature_type=(feature_type) * num_ensemble,
+        feature_type=(feature_type, ) * num_ensemble,
         shared=(shared,) * num_ensemble,
         learn_coeff=(learn_coeff,) * num_ensemble,
         learn_mean=(learn_mean,) * num_ensemble,
@@ -176,7 +176,8 @@ def test_training(
 
 
 if __name__ == "__main__":
-    fire.Fire()
+    # fire.Fire()
+    test_training()
 
 """
 Hyperparameter Search:

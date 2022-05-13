@@ -1,7 +1,7 @@
 import torch
 import numpy as np
-from NeuralLVM.utils import get_grid, angle2vector, vector2angle
-from NeuralLVM.hyperspherical_vae import reparameterize
+from utils import get_grid, angle2vector, vector2angle
+from hyperspherical_vae import reparameterize
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print('Running on', device)

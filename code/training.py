@@ -67,6 +67,7 @@ class Trainer:
 
     def train(self):
         t0 = time.time()
+        device = self.model.device
         worse = 0  # counter for early stopping
         running_loss = 0.0
         loss_track = []
@@ -87,7 +88,9 @@ class Trainer:
 
             output = self.model(y_train, z=z)
 
-            kld_loss, slowness_loss, encoder_loss = torch.zeros(1), torch.zeros(1), torch.zeros(1)
+            kld_loss = torch.zeros(1, device=device)
+            slowness_loss = torch.zeros(1, device=device)
+            encoder_loss = torch.zeros(1, device=device)
             for j, m in enumerate(self.model.latent_manifolds):
                 # sum over time and neurons, mean over batch (same below for Poisson LLH)
                 kld_loss = kld_loss + torch.distributions.kl.kl_divergence(
@@ -133,7 +136,9 @@ class Trainer:
 
                 output = self.model(y_train, z=z)
 
-                kld_loss, slowness_loss, encoder_loss = torch.zeros(1), torch.zeros(1), torch.zeros(1)
+                kld_loss = torch.zeros(1, device=device)
+                slowness_loss = torch.zeros(1, device=device)
+                encoder_loss = torch.zeros(1, device=device)
                 for j, m in enumerate(self.model.latent_manifolds):
                     # sum over time and neurons, mean over batch (same below for Poisson LLH)
                     kld_loss = kld_loss + torch.distributions.kl.kl_divergence(

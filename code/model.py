@@ -256,14 +256,14 @@ class Decoder(torch.nn.Module):
                 raise ValueError("latent manifold not yet implemented.")
             self.feature_bases_train.append(
                 FeatureBasis(num_neuron_train, feature_type=feature_type[i],  shared=shared[i],
-                             learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_mean[i],
+                             learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
                              isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
                              manifold=manifold, seed=seed)
             )
             if not self.shared[i]:
                 self.feature_bases_test.append(
                     FeatureBasis(num_neuron_test, feature_type=feature_type[i], shared=shared[i],
-                                 learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_mean[i],
+                                 learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
                                  isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
                                  manifold=manifold, seed=seed)
                 )

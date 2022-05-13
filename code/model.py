@@ -166,9 +166,9 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         else:
             raise ValueError("feature_type unknown")
 
-        self.coeff = torch.nn.Parameter(coeff_init, requires_grad=flexibility[0])
-        self.mean = torch.nn.Parameter(mean_init, requires_grad=flexibility[1])
-        self.log_var = torch.nn.Parameter(log_var_init, requires_grad=flexibility[2])
+        self.coeff = torch.nn.Parameter(coeff_init, requires_grad=learn_coeff)
+        self.mean = torch.nn.Parameter(mean_init, requires_grad=learn_mean)
+        self.log_var = torch.nn.Parameter(log_var_init, requires_grad=learn_var)
 
     def forward(self, z, rf, test=False):
         """

@@ -152,7 +152,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
             # mean_init = torch.rand(parameter_shape) * 2 * np.pi - np.pi
             # initialize to evenly spread grid (produces a total of num_basis**latent_dim basis functions)
             mean_init = torch.tensor(get_grid(latent_dim, num_basis))
-            log_var_init = torch.log(torch.ones(var_shape) * 10.)
+            log_var_init = torch.log(torch.ones(var_shape) * np.pi)
             coeff_init[:, 0] += 1  # initialize close to single bump
         elif feature_type == 'fourier':
             raise ValueError("not yet fully implemented")

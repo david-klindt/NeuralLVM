@@ -8,10 +8,6 @@ from numbers import Number
 from torch.distributions.kl import register_kl
 
 
-#def reparameterize_vmf(z_mean, z_var):
-#    q_z = VonMisesFisher(z_mean, z_var[..., None])
-#    p_z = HypersphericalUniform(z_mean.shape[-1] - 1, device=z_mean.device)
-#    return q_z, p_z
 
 def reparameterize(distribution, z_mean, z_var):
     # from https://github.com/nicola-decao/s-vae-pytorch/blob/master/examples/mnist.py#L83

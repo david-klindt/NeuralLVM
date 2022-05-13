@@ -3,9 +3,9 @@ import time
 import os
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-from model import *
-from hyperspherical_vae import *
-from utils import *
+from utils import compute_slowness_loss
+from utils import angle2vector
+from utils import check_grad
 
 
 

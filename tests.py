@@ -1,12 +1,14 @@
 import torch
-import time
 import numpy as np
-import matplotlib.pyplot as plt
-from gtda.homology import VietorisRipsPersistence
-from gtda.plotting import plot_diagram
-from utils import *
-from model import *
+from utils import angle2vector_flat
+from utils import sum_pairs
+from utils import count_parameters
+from utils import torch_circular_gp
+from utils import analysis
+from model import Model
 from training import Trainer
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 ### For first simulation experiments ###
@@ -63,64 +65,6 @@ class StochasticNeurons(torch.nn.Module):
         responses = responses / self.scale
 
         return responses
-
-
-def test_simulation():
-    num_ensemble = 2
-    num_neuron = 2
-    model = StochasticNeurons(num_neuron, num_ensemble=num_ensemble)
-
-    print('clean')
-    plt.figure(figsize=(15, 3))
-    for i in range(num_ensemble*2):
-      plt.subplot(1, num_ensemble*2, i+1)
-      inputs = torch.zeros((100, num_ensemble*2))
-      inputs[:, i] = torch.linspace(0, 2*np.pi, 100)
-      responses = model(inputs)
-      plt.plot(responses.detach().numpy().T)
-      plt.legend(np.arange(num_neuron * num_ensemble))
-    plt.show()
-
-
-    print('noisy')
-    model.noise = True
-    plt.figure(figsize=(15, 3))
-    for i in range(num_ensemble*2):
-      plt.subplot(1, num_ensemble*2, i+1)
-      inputs = torch.zeros((100, num_ensemble*2))
-      inputs[:, i] = torch.linspace(0, 2*np.pi, 100)
-      responses = model(inputs)
-      plt.plot(responses.detach().numpy().T)
-      plt.legend(np.arange(num_neuron * num_ensemble))
-    plt.show()
-
-    # Persistence
-    num_neuron = 50
-    D = 500
-    model = StochasticNeurons(num_neuron, num_ensemble=num_ensemble, noise=True)
-    responses = model(torch.rand(D, num_ensemble * 2) * 2 * np.pi)
-
-    # all
-    t0 = time.time()
-    VR = VietorisRipsPersistence(
-        homology_dimensions=[0, 1, 2],
-    )
-    diagrams0 = VR.fit_transform([responses.detach().numpy().T])
-    print(diagrams0.shape, time.time() - t0)
-    fig0 = plot_diagram(diagrams0[0])
-    fig0.show()
-
-    # per ensemble
-    for i in range(num_ensemble):
-        t0 = time.time()
-        VR = VietorisRipsPersistence(
-            homology_dimensions=[0, 1, 2],
-        )
-        diagrams0 = VR.fit_transform(
-            [responses[i * num_neuron:(i + 1) * num_neuron].detach().numpy().T])
-        print(i, diagrams0.shape, time.time() - t0)
-        fig0 = plot_diagram(diagrams0[0])
-        fig0.show()
 
 
 def test_training(num_ensemble=2, num_neuron_train=50, num_neuron_test=50,

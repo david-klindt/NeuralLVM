@@ -1,10 +1,10 @@
 import numpy as np
-from utils import torch_circular_gp
 from data import data_generation
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.feature_selection import mutual_info_regression
 import torch
 from itertools import permutations
+from .utils import torch_circular_gp
 
 
 

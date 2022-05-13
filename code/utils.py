@@ -1,8 +1,23 @@
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import pearsonr
 from sklearn.feature_selection import mutual_info_regression
 
+
+
+def get_correlation(y, y_):
+    corrs = []
+    for j in range(y.shape[0]):
+        if np.any(np.isnan(y_[j])) or np.any(np.isinf(y_[j])):
+            corrs.append(0)
+        else:
+            corr = pearsonr(y[j], y_[j])[0]
+            if np.isnan(corr):
+                corrs.append(0)
+            else:
+                corrs.append(corr)
+    return np.array(corrs)
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

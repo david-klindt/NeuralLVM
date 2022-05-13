@@ -2,10 +2,10 @@ import torch
 import time
 import os
 import numpy as np
-from scipy.stats import pearsonr, spearmanr
 from NeuralLVM.code.utils import compute_slowness_loss
 from NeuralLVM.code.utils import angle2vector
 from NeuralLVM.code.utils import check_grad
+from NeuralLVM.code.utils import get_correlation
 
 
 
@@ -155,13 +155,8 @@ class Trainer:
 
                 ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
                 entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))
-
-                corrs = []
-                y = y_test.detach().cpu().numpy()[0]
-                y_ = output['responses_test'].detach().cpu().numpy()[0]
-                for j in range(y.shape[0]):
-                    corrs.append(pearsonr(y[j], y_[j])[0])
-
+                corrs = get_correlation(
+                    y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])
                 print('run=%s, running_loss=%.4e, negLLH_train=%.4e, negLLH_test=%.4e, KL=%.4e, '
                       'Slowness_loss=%.4e, encoder_loss=%.4e, corr=%.6f, H=%.4e, time=%.2f' % (
                       i, running_loss, poisson_loss_train.item(), poisson_loss_test.item(),
@@ -209,11 +204,8 @@ class Trainer:
         ensemble_weights = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
         entropy = - torch.mean(ensemble_weights * torch.log(ensemble_weights + 1e-6))
 
-        corrs = []
-        y = y_test.detach().cpu().numpy()
-        y_ = output['responses_test'].detach().cpu().numpy()
-        for j in range(y_test.shape[0]):
-            corrs.append(pearsonr(y[j], y_[j])[0])
+        corrs = get_correlation(
+            y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])
 
         print('\nFinal Performance:\n',
             'run=%s, running_loss=%.4e, negLLH_train=%.4e, negLLH_test=%.4e, KL=%.4e, '

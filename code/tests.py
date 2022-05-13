@@ -5,7 +5,7 @@ from utils import sum_pairs
 from utils import count_parameters
 from utils import torch_circular_gp
 from utils import analysis
-from model import Model
+from NeuralLVM.code.model import Model
 from training import Trainer
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

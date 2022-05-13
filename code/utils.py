@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.feature_selection import mutual_info_regression
-from inference import inference
+from NeuralLVM.code.inference import inference
 
 
 def count_parameters(model):

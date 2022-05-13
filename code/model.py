@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from utils import get_grid, angle2vector, vector2angle
+from NeuralLVM.code.utils import get_grid, angle2vector, vector2angle
 from NeuralLVM.code.hyperspherical_vae import reparameterize
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

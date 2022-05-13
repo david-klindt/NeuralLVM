@@ -1,5 +1,5 @@
 import torch
-from utils import compute_poisson_loss
+from NeuralLVM.code.utils import compute_poisson_loss
 
 
 def inference(

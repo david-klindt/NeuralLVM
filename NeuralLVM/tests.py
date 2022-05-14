@@ -174,7 +174,7 @@ def test_training(
         label_train=label_train,
         label_test=label_test,
         num_steps=100000,
-        num_log_step=100,
+        num_log_step=500,
         batch_size=batch_size,
         batch_length=batch_length,
         learning_rate=learning_rate,
@@ -195,7 +195,7 @@ def test_training(
     output = {**args, **output}  # document args as well
     with open(f'{log_dir}/output.pickle', 'wb') as handle:
         pickle.dump(output, handle)
-    
+    print(exp_name, ' done')
     # ToDo(pickle save output file in model_ckpt folder)
 
     # ToDo(fix analysis code for refactored model)

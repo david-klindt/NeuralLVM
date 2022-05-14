@@ -18,7 +18,7 @@
 #BSUB -M 20000
 #
 # Specify the maximum runtime of you job. The format is "hours:minutes".
-#BSUB -W 1:00
+#BSUB -W 4:00
 #
 # Make sure that all job slots run on the same host
 #BSUB -R "span[hosts=1]"    # run on a single host

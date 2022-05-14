@@ -1,70 +1,13 @@
 import torch
 import numpy as np
-from NeuralLVM.code.utils import angle2vector_flat
-from NeuralLVM.code.utils import sum_pairs
 from NeuralLVM.code.utils import count_parameters
 from NeuralLVM.code.utils import torch_circular_gp
 from NeuralLVM.code.utils import analysis
 from NeuralLVM.code.model import Model
 from NeuralLVM.code.training import Trainer
+from NeuralLVM.code.data import StochasticNeurons
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-### For first simulation experiments ###
-class StochasticNeurons(torch.nn.Module):
-    def __init__(
-            self,
-            N,
-            num_ensemble=2,
-            latent_dim=2,
-            seed=304857,
-            noise=False,
-            tuning_width=10.0,
-            scale=16.0,
-    ):
-        super(StochasticNeurons, self).__init__()
-        self.num_ensemble = num_ensemble
-        self.tuning_width = tuning_width
-        self.scale = scale
-        self.noise = noise
-        self.latent_dim = latent_dim
-
-        torch.manual_seed(seed)
-        self.receptive_fields = torch.nn.Parameter(
-            torch.rand(num_ensemble * N, latent_dim) * 2 * np.pi,
-            requires_grad=False
-        )
-        ensemble_weights = np.zeros((N * num_ensemble, num_ensemble))
-        for i in range(num_ensemble):
-            ensemble_weights[i*N:(i+1)*N, i] = 1
-        self.ensemble_weights = torch.nn.Parameter(
-            torch.tensor(ensemble_weights, dtype=torch.float),
-            requires_grad=False
-        )
-        selector = torch.stack([torch.eye(2 * latent_dim) for i in range(num_ensemble)], 0)
-        self.selector = torch.nn.Parameter(selector, requires_grad=False)
-
-    def forward(self, z):
-        z_vector = angle2vector_flat(z)
-        rf_vector = angle2vector_flat(self.receptive_fields)
-
-        # early selection
-        selector = self.ensemble_weights[..., None, None] * self.selector[None]
-        selector = torch.concat(torch.split(selector, 1, dim=1), 3).view(
-            -1, 2 * self.latent_dim, self.num_ensemble * 2 * self.latent_dim)
-        selected = torch.matmul(selector, z_vector.T)
-        dist = (rf_vector[..., None] - selected)**2
-        pairs = sum_pairs(dist)
-        if self.latent_dim == 2:
-            pairs = sum_pairs(pairs)
-        response = torch.exp(-pairs / self.tuning_width) * self.scale
-        responses = response[:, 0]
-        if self.noise:
-            responses = torch.poisson(responses)
-        responses = responses / self.scale
-
-        return responses
 
 
 def test_training(
@@ -151,59 +94,7 @@ def test_training(
     )
     output = trainer.train()
 
-    # ToDo(pickle save output file in model_ckpt folder)
-    del output['q_z'], output['p_z']  # those cannot be pickled (pickle Rick!!!)
-
     # ToDo(fix analysis code for refactored model)
     #analysis(ensembler, simulator, trainer, z_test)
     #print("Repeat analysis with good inference:")
     #analysis(ensembler, simulator, trainer, z_test, do_inference=True)
-
-"""
-Hyperparameter Search:
-
-### fix:
-
-num_ensemble=2
-latent_manifolds=('T2', 'T2')
-num_neuron_train=50
-num_neuron_test=50
-latent_dim=2
-feature_type=('gauss', 'gauss')
-z_smoothness=3
-num_test=1000
-num_steps=100000
-num_log_step=100
-
-
-### search over:
-
-# data (this is more to check)
-num_sample: [1000, 10000, 100000]
-num_neuron_train: [10, 50, 100]
-seed: ...
-
-# model
-kernel_size: [1, 3, 9, 17, 33],
-num_hidden: [16, 32, 64, 128, 256, 512]
-shared: [(True, True), (False, False)]
-learn_coeff: [(True, True), (False, False)]
-learn_mean: [(True, True), (False, False)]
-learn_var: [(True, True), (False, False)]
-isotropic: [(True, True), (False, False)]
-num_basis: [(1, 1), (2, 2), (4, 4), (8, 8)]
-nonlinearity: [('exp', 'exp'), ('softplus', 'softplus')]
-seed: ...
-
-# training
-batch_size: [1, 16, 32]
-batch_length: [64, 128]
-learning_rate: [1e-3, 3e-3, 1e-2, 3e-2]
-num_worse: [10, 50, 100]
-weight_kl: [0 or geomspace(1e-9, 1e0)]
-weight_time: [0 or geomspace(1e-9, 1e0)]
-weight_entropy: [0 or geomspace(1e-9, 1e0)]
-seed: ...
-
-"""
-

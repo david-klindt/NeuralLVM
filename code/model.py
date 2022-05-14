@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from NeuralLVM.code.utils import get_grid, angle2vector, vector2angle
+from NeuralLVM.code.utils import get_grid, angle2vector, vector2angle, make_tuple
 from NeuralLVM.code.hyperspherical_vae import reparameterize
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -225,7 +225,7 @@ class Decoder(torch.nn.Module):
             learn_var=(True, True),
             isotropic=(True, True),
             num_basis=(1, 16),  # ignored for feature_type='bump'
-            nonlinearity='exp',
+            nonlinearity=('exp', 'softplus'),
             seed=2093857,
     ):
         super(Decoder, self).__init__()
@@ -263,14 +263,14 @@ class Decoder(torch.nn.Module):
                 FeatureBasis(num_neuron_train, feature_type=feature_type[i],  shared=shared[i],
                              learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
                              isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
-                             manifold=manifold, nonlinearity=nonlinearity, seed=seed)
+                             manifold=manifold, nonlinearity=nonlinearity[i], seed=seed)
             )
             if not self.shared[i]:
                 self.feature_bases_test.append(
                     FeatureBasis(num_neuron_test, feature_type=feature_type[i], shared=shared[i],
                                  learn_coeff=learn_coeff[i], learn_mean=learn_mean[i], learn_var=learn_var[i],
                                  isotropic=isotropic[i], num_basis=num_basis[i], latent_dim=latent_dim,
-                                 manifold=manifold, seed=seed)
+                                 manifold=manifold, nonlinearity=nonlinearity[i], seed=seed)
                 )
 
             self.receptive_fields_train.append(
@@ -332,6 +332,8 @@ class Model(torch.nn.Module):
             num_neuron_test,
             kernel_size=9,
             num_hidden=256,
+            num_ensemble=2,
+            # for all tuple parameters below, if input is not tuple, it is just the same across all num_ensemble
             latent_manifolds=('T1', 'R2'),  # this gives S1 and R2 latent spaces
             feature_type=('gauss', 'gauss'),  # {'gauss', 'fourier'}
             shared=(True, True),
@@ -340,33 +342,35 @@ class Model(torch.nn.Module):
             learn_var=(True, True),
             isotropic=(True, True),
             num_basis=(1, 1),  # for 1 and 'gauss' = 'bump' model, careful this scales as num_basis**n (e.g. n=2 for R2)
-            nonlinearity='exp',
+            nonlinearity=('exp', 'softplus'),
             seed=1293842,
     ):
         super(Model, self).__init__()
         self.num_neuron_train = num_neuron_train  # used to infer latents and learn shared features
         self.num_neuron_test = num_neuron_test  # only for testing, learn RFs given fixed feature basis and latents.
+        self.num_ensemble = num_ensemble
         self.kernel_size = kernel_size
         self.num_hidden = num_hidden
-        self.latent_manifolds = latent_manifolds
-        self.feature_type = feature_type
-        self.shared = shared
-        self.learn_coeff = learn_coeff
-        self.learn_mean = learn_mean
-        self.learn_var = learn_var
-        self.isotropic = isotropic
-        self.num_basis = num_basis
-        self.nonlinearity = nonlinearity
+        self.latent_manifolds = make_tuple(latent_manifolds, num_ensemble)
+        self.feature_type = make_tuple(feature_type, num_ensemble)
+        self.shared = make_tuple(shared, num_ensemble)
+        self.learn_coeff = make_tuple(learn_coeff, num_ensemble)
+        self.learn_mean = make_tuple(learn_mean, num_ensemble)
+        self.learn_var = make_tuple(learn_var, num_ensemble)
+        self.isotropic = make_tuple(isotropic, num_ensemble)
+        self.num_basis = make_tuple(num_basis, num_ensemble)
+        self.nonlinearity = make_tuple(nonlinearity, num_ensemble)
+
         self.seed = seed
 
         self.encoder = Encoder(
-            in_channels=num_neuron_train, latent_manifolds=latent_manifolds, kernel_size=kernel_size,
-            num_hidden=num_hidden, seed=seed
+            in_channels=self.num_neuron_train, latent_manifolds=self.latent_manifolds,
+            kernel_size=self.kernel_size, num_hidden=self.num_hidden, seed=seed
         )
         self.decoder = Decoder(
-            num_neuron_train, num_neuron_test, latent_manifolds=latent_manifolds, feature_type=feature_type,
-            shared=shared, learn_coeff=learn_coeff, learn_mean=learn_mean, learn_var=learn_var, isotropic=isotropic,
-            num_basis=num_basis, nonlinearity=nonlinearity, seed=seed
+            num_neuron_train, num_neuron_test, latent_manifolds=self.latent_manifolds, feature_type=self.feature_type,
+            shared=self.shared, learn_coeff=self.learn_coeff, learn_mean=self.learn_mean, learn_var=self.learn_var,
+            isotropic=self.isotropic, num_basis=self.num_basis, nonlinearity=self.nonlinearity, seed=seed
         )
 
     def forward(self, x, z=None):

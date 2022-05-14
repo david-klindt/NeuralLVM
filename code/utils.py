@@ -6,6 +6,11 @@ from sklearn.feature_selection import mutual_info_regression
 
 
 
+def make_tuple(input, num_ensemble):
+    if type(input) != tuple:
+        input = (input,) * num_ensemble
+    return input
+
 def get_correlation(y, y_):
     corrs = []
     for j in range(y.shape[0]):

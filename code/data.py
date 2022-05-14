@@ -1,5 +1,64 @@
 import numpy as np
 from scipy.spatial import distance
+import torch
+from NeuralLVM.code.utils import angle2vector_flat
+from NeuralLVM.code.utils import sum_pairs
+
+
+
+class StochasticNeurons(torch.nn.Module):
+    def __init__(
+            self,
+            N,
+            num_ensemble=2,
+            latent_dim=2,
+            seed=304857,
+            noise=False,
+            tuning_width=10.0,
+            scale=16.0,
+    ):
+        super(StochasticNeurons, self).__init__()
+        self.num_ensemble = num_ensemble
+        self.tuning_width = tuning_width
+        self.scale = scale
+        self.noise = noise
+        self.latent_dim = latent_dim
+
+        torch.manual_seed(seed)
+        self.receptive_fields = torch.nn.Parameter(
+            torch.rand(num_ensemble * N, latent_dim) * 2 * np.pi,
+            requires_grad=False
+        )
+        ensemble_weights = np.zeros((N * num_ensemble, num_ensemble))
+        for i in range(num_ensemble):
+            ensemble_weights[i*N:(i+1)*N, i] = 1
+        self.ensemble_weights = torch.nn.Parameter(
+            torch.tensor(ensemble_weights, dtype=torch.float),
+            requires_grad=False
+        )
+        selector = torch.stack([torch.eye(2 * latent_dim) for i in range(num_ensemble)], 0)
+        self.selector = torch.nn.Parameter(selector, requires_grad=False)
+
+    def forward(self, z):
+        z_vector = angle2vector_flat(z)
+        rf_vector = angle2vector_flat(self.receptive_fields)
+
+        # early selection
+        selector = self.ensemble_weights[..., None, None] * self.selector[None]
+        selector = torch.concat(torch.split(selector, 1, dim=1), 3).view(
+            -1, 2 * self.latent_dim, self.num_ensemble * 2 * self.latent_dim)
+        selected = torch.matmul(selector, z_vector.T)
+        dist = (rf_vector[..., None] - selected)**2
+        pairs = sum_pairs(dist)
+        if self.latent_dim == 2:
+            pairs = sum_pairs(pairs)
+        response = torch.exp(-pairs / self.tuning_width) * self.scale
+        responses = response[:, 0]
+        if self.noise:
+            responses = torch.poisson(responses)
+        responses = responses / self.scale
+
+        return responses
 
 
 class data_generation:

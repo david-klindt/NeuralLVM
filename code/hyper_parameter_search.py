@@ -1,10 +1,13 @@
 import torch
 import numpy as np
-from NeuralLVM.code.utils import count_parameters
-from NeuralLVM.code.utils import torch_circular_gp
-from NeuralLVM.code.model import Model
-from NeuralLVM.code.training import Trainer
-from NeuralLVM.code.data import StochasticNeurons
+from code.utils import count_parameters
+from code.utils import torch_circular_gp
+from code.model import Model
+from code.training import Trainer
+from code.data import StochasticNeurons
+import pickle
+import os
+import time
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -50,7 +53,7 @@ def get_config(index, num_repetition=3, num_seeds=1000000, global_seed=42):
     config['z_smoothness'] = 3
     config['num_test'] = 1000
     config['num_steps'] = 100000
-    config['num_log_step'] = 100
+    config['num_log_step'] = 1000
     config['num_sample'] = 10000  # [1000, 10000, 100000]
     config['num_neuron_train'] = 50  # [10, 50, 100]
 
@@ -77,14 +80,16 @@ def get_config(index, num_repetition=3, num_seeds=1000000, global_seed=42):
     return config
 
 
-def run_experiment(config, repetition):
-
-    # ToDo(pickle save config file in model_ckpt folder)
-
+def run_experiment(config, repetition, model_ckpt_base):
+    start = time.time()
+    print('repetition', repetition)
+    model_ckpt_folder = os.path.join(model_ckpt_base, f'rep_{repetition}')
+    os.makedirs(model_ckpt_folder, exist_ok=True)
+    with open(os.path.join(model_ckpt_folder, 'config.pickle'), 'wb') as f:
+        pickle.dump(config, f)
     seed = config['seeds'][repetition]
     np.random.seed(seed)
     torch.manual_seed(seed)
-
     num_neuron = config['num_neuron_train'] + config['num_neuron_test']
     neurons_train_ind = np.zeros(num_neuron * config['num_ensemble'], dtype=bool)
     ind = np.random.choice(
@@ -159,7 +164,7 @@ def run_experiment(config, repetition):
         weight_kl=config['weight_kl'],
         weight_time=config['weight_time'],
         weight_entropy=config['weight_entropy'],
-        log_dir='model_ckpt',
+        log_dir=model_ckpt_folder,
         log_training=True,
         seed=seed
     )
@@ -167,3 +172,9 @@ def run_experiment(config, repetition):
 
     # ToDo(pickle save output file in model_ckpt folder)
     del output['q_z'], output['p_z']  # those cannot be pickled (pickle Rick!!!)
+
+    output['time_total'] = time.time() - start
+    with open(os.path.join(model_ckpt_folder, 'output.pickle'), 'wb') as f:
+        pickle.dump(output, f)
+    print('seed done', seed, 'repetition',
+          repetition, 'time', time.time() - start)

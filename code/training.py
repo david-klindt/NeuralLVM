@@ -2,11 +2,11 @@ import torch
 import time
 import os
 import numpy as np
-from NeuralLVM.code.utils import compute_slowness_loss
-from NeuralLVM.code.utils import angle2vector
-from NeuralLVM.code.utils import check_grad
-from NeuralLVM.code.utils import get_correlation
-from NeuralLVM.code.clustering import get_accuracy
+from code.utils import compute_slowness_loss
+from code.utils import angle2vector
+from code.utils import check_grad
+from code.utils import get_correlation
+from code.clustering import get_accuracy
 
 
 

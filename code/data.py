@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.spatial import distance
 import torch
-from NeuralLVM.code.utils import angle2vector_flat
-from NeuralLVM.code.utils import sum_pairs
+from code.utils import angle2vector_flat
+from code.utils import sum_pairs
 
 
 

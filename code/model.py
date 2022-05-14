@@ -142,8 +142,8 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
         self.nonlinearity = nonlinearity
         torch.manual_seed(seed)
 
-        coeff_shape = (1 if shared else num_neuron, num_basis)
-        var_shape = (1 if shared else num_neuron, num_basis, 1 if isotropic else latent_dim)
+        coeff_shape = (1 if shared else num_neuron, num_basis**latent_dim)
+        var_shape = (1 if shared else num_neuron, num_basis**latent_dim, 1 if isotropic else latent_dim)
 
         # ToDo(Martin): what are good values here below?
         if feature_type == 'gauss':
@@ -156,6 +156,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
             coeff_init[:, 0] += 1  # initialize close to single bump
         elif feature_type == 'fourier':
             raise ValueError("not yet fully implemented")
+            """
             coeff_shape = (num_basis * 2 + 1, 1 if shared else num_neuron)
             coeff_init = torch.randn(coeff_shape) * 1e-3
             mean_init = torch.zeros(1)  # not used
@@ -163,6 +164,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
             # initialize as DC + slowest cosine:
             coeff_init[0] += 1
             coeff_init[1] += 1
+            """
         else:
             raise ValueError("feature_type unknown")
 
@@ -190,6 +192,7 @@ class FeatureBasis(torch.nn.Module):  # one for each latent manifold
                 z = angle2vector(z)  # B x L x D x V
                 rf = angle2vector(rf)  # N x D x V
                 mean = angle2vector(mean)  # {N, 1} x H x D x V
+                log_var = log_var[..., None]  # {N, 1} x H x D x 1
                 sum_over = (4, 5)
             else:
                 sum_over = 4

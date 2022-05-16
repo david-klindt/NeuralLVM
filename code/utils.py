@@ -93,14 +93,16 @@ def correlation_loss(y, y_):
         torch.sum(torch_normalize(y) * torch_normalize(y_), dim=1))
 
 
-def check_grad(model, log_file):
+def check_grad(model, log_file, print_b=True):
     for name, param in model.named_parameters():
         if param.grad is not None:
             if torch.any(torch.isnan(param.grad)):
-                print('NaN in Gradient, skipping step', name, file=log_file)
+                if print_b:
+                    print('NaN in Gradient, skipping step', name, file=log_file)
                 return False
             if torch.any(torch.isinf(param.grad)):
-                print('inf in Gradient, skipping step', name, file=log_file)
+                if print_b:
+                    print('inf in Gradient, skipping step', name, file=log_file)
                 return False
     return True
 

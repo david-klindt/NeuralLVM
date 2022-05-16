@@ -69,6 +69,7 @@ class Trainer:
         os.makedirs(log_dir, exist_ok=True)
         self.save_path = os.path.join(log_dir, 'model.pth')
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        self.nan_counter = 0
 
     def train(self):
         t0 = time.time()
@@ -125,8 +126,11 @@ class Trainer:
                     self.weight_entropy * entropy
                 )
             loss.backward()
-            if check_grad(self.model, self.log_file):
+            if check_grad(self.model, self.log_file, print_b=self.nan_counter < 20):
                 self.optimizer.step()
+            else:
+                self.nan_counter += 1
+
             if not np.isnan(loss.item()) and not np.isinf(loss.item()):
                 running_loss += loss.item()
 

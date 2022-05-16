@@ -15,10 +15,10 @@
 #BSUB -n 2
 #
 # Required amount of memory per CPU core (in Mbyte)
-#BSUB -M 20000
+#BSUB -M 5000
 #
 # Specify the maximum runtime of you job. The format is "hours:minutes".
-#BSUB -W 1:00
+#BSUB -W 8:00
 #
 # Make sure that all job slots run on the same host
 #BSUB -R "span[hosts=1]"    # run on a single host

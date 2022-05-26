@@ -79,7 +79,11 @@ class Trainer:
         for i in range(self.num_steps + 1):
             self.optimizer.zero_grad()
             np.random.seed(self.seed + i)
-            batch_indices = np.random.choice(self.data_train.shape[1] - self.batch_length, self.batch_size)
+            batch_indices = np.random.choice(
+                self.data_train.shape[1] - self.batch_length, 
+                self.batch_size,
+                replace=False
+            )
             y_train, y_test = [], []
             for ind in batch_indices:
                 y_train.append(self.data_train[self.neurons_train_ind][:, ind:ind + self.batch_length])

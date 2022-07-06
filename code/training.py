@@ -117,7 +117,7 @@ class Trainer:
             ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
             entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
             ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
-            entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
+            entropy = entropy - torch.mean(ensemble_weights_test * torch.log(ensemble_weights_test + 1e-6))
 
             if self.mode == 'encoder':
                 loss = encoder_loss

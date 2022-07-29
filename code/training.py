@@ -117,7 +117,7 @@ class Trainer:
             ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
             entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
             ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
-            entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
+            entropy = entropy - torch.mean(ensemble_weights_test * torch.log(ensemble_weights_test + 1e-6))
 
             if self.mode == 'encoder':
                 loss = encoder_loss
@@ -163,7 +163,7 @@ class Trainer:
                 ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
                 entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
                 ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
-                entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
+                entropy = entropy - torch.mean(ensemble_weights_test * torch.log(ensemble_weights_test + 1e-6))
                 if self.label_train is None:
                     accuracy_train = 0
                 else:
@@ -173,7 +173,7 @@ class Trainer:
                     accuracy_test = 0
                 else:
                     accuracy_test = get_accuracy(
-                        self.label_test, ensemble_weights_train.detach().cpu().numpy().argmax(1))
+                        self.label_test, ensemble_weights_test.detach().cpu().numpy().argmax(1))
 
                 corrs = get_correlation(
                     y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])
@@ -226,7 +226,7 @@ class Trainer:
         ensemble_weights_train = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_train, dim=1)
         entropy = - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_train + 1e-6))
         ensemble_weights_test = torch.nn.functional.softmax(self.model.decoder.ensemble_weights_test, dim=1)
-        entropy = entropy - torch.mean(ensemble_weights_train * torch.log(ensemble_weights_test + 1e-6))
+        entropy = entropy - torch.mean(ensemble_weights_test * torch.log(ensemble_weights_test + 1e-6))
         if self.label_train is None:
             accuracy_train = 0
         else:
@@ -236,7 +236,7 @@ class Trainer:
             accuracy_test = 0
         else:
             accuracy_test = get_accuracy(
-                self.label_test, ensemble_weights_train.detach().cpu().numpy().argmax(1))
+                self.label_test, ensemble_weights_test.detach().cpu().numpy().argmax(1))
 
         corrs = get_correlation(
             y_test.detach().cpu().numpy()[0], output['responses_test'].detach().cpu().numpy()[0])

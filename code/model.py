@@ -451,7 +451,7 @@ class Model(torch.nn.Module):
         # run model
         output = self.encoder(x) # B x L x D
         if self.mlp_decoder:
-            z = output['z'][0].permute(0, 2, 1). # B x D x L
+            z = output['z'][0].permute(0, 2, 1)  # B x D x L
             responses_train, responses_test = self.decoder(z)
         else:
             if z is None:

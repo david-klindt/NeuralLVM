@@ -323,6 +323,68 @@ class Decoder(torch.nn.Module):
         responses_train = responses_train.permute(0, 2, 1)  # B x N x L
         responses_test = responses_test.permute(0, 2, 1)  # B x N x L
         return responses_train, responses_test
+    
+    
+class MLPDecoder(torch.nn.Module):
+    def __init__(
+            self,
+            num_neuron_train,
+            num_neuron_test,
+            kernel_size=9,
+            num_hidden=256,
+            seed=2938057
+    ):
+        super(MLPDecoder, self).__init__()
+        self.num_neuron_train = num_neuron_train
+        self.num_neuron_test = num_neuron_test
+        self.kernel_size = kernel_size
+        self.num_hidden = num_hidden
+        torch.manual_seed(seed)
+
+        self.network = torch.nn.Sequential(
+            torch.nn.Conv1d(
+                in_channels=2,  # works only on single R2 latent space for now!!!
+                out_channels=num_hidden,
+                kernel_size=1,
+                padding='same',
+            ),
+            torch.nn.ReLU(),
+            torch.nn.Conv1d(
+                in_channels=num_hidden,
+                out_channels=num_hidden,
+                kernel_size=1,
+                padding='same',
+            ),
+            torch.nn.ReLU(),
+            torch.nn.Conv1d(
+                in_channels=num_hidden,
+                out_channels=num_hidden,
+                kernel_size=1,
+                padding='same',
+            ),
+        )
+        self.train_head = torch.nn.Conv1d(
+            in_channels=num_hidden,
+            out_channels=num_neuron_train,
+            kernel_size=kernel_size,
+            padding='same',
+        )
+        self.test_head = torch.nn.Conv1d(
+            in_channels=num_hidden,
+            out_channels=num_neuron_test,
+            kernel_size=kernel_size,
+            padding='same',
+        )
+
+    def forward(self, z):
+        """z is list of latents for each manifold"""
+        z = self.network(z)
+ 
+        # works only on single R2 latent space for now!!!
+    
+        responses_train = self.train_head(z)  # B x N x L
+        responses_test = self.test_head(z.detach())  # B x N x L
+        return responses_train, responses_test
 
 
 class Model(torch.nn.Module):
@@ -343,6 +405,7 @@ class Model(torch.nn.Module):
             isotropic=(True, True),
             num_basis=(1, 1),  # for 1 and 'gauss' = 'bump' model, careful this scales as num_basis**n (e.g. n=2 for R2)
             nonlinearity=('exp', 'softplus'),
+            mlp_decoder=False,
             seed=1293842,
     ):
         super(Model, self).__init__()
@@ -360,6 +423,7 @@ class Model(torch.nn.Module):
         self.isotropic = make_tuple(isotropic, num_ensemble)
         self.num_basis = make_tuple(num_basis, num_ensemble)
         self.nonlinearity = make_tuple(nonlinearity, num_ensemble)
+        self.mlp_decoder = mlp_decoder
 
         self.seed = seed
 
@@ -367,11 +431,17 @@ class Model(torch.nn.Module):
             in_channels=self.num_neuron_train, latent_manifolds=self.latent_manifolds,
             kernel_size=self.kernel_size, num_hidden=self.num_hidden, seed=seed
         )
-        self.decoder = Decoder(
-            num_neuron_train, num_neuron_test, latent_manifolds=self.latent_manifolds, feature_type=self.feature_type,
-            shared=self.shared, learn_coeff=self.learn_coeff, learn_mean=self.learn_mean, learn_var=self.learn_var,
-            isotropic=self.isotropic, num_basis=self.num_basis, nonlinearity=self.nonlinearity, seed=seed
-        )
+        if self.mlp_decoder:
+            self.decoder = MLPDecoder(
+                num_neuron_train, num_neuron_test, kernel_size=self.kernel_size,
+                num_hidden=self.num_hidden, seed=seed
+            )
+        else:
+            self.decoder = Decoder(
+                num_neuron_train, num_neuron_test, latent_manifolds=self.latent_manifolds, feature_type=self.feature_type,
+                shared=self.shared, learn_coeff=self.learn_coeff, learn_mean=self.learn_mean, learn_var=self.learn_var,
+                isotropic=self.isotropic, num_basis=self.num_basis, nonlinearity=self.nonlinearity, seed=seed
+            )
 
     def forward(self, x, z=None):
         # required input shape: (B x N x L)
@@ -379,13 +449,17 @@ class Model(torch.nn.Module):
         assert num_neuron_train == self.num_neuron_train
 
         # run model
-        output = self.encoder(x)
-        if z is None:
-            responses_train, responses_test = self.decoder(output['z'])
-        else:   # use externally fed-in z
-            for a, b in zip(z, output['z']):
-                assert a.shape == b.shape
+        output = self.encoder(x) # B x L x D
+        if self.mlp_decoder:
+            z = output['z'][0].permute(0, 2, 1). # B x D x L
             responses_train, responses_test = self.decoder(z)
+        else:
+            if z is None:
+                responses_train, responses_test = self.decoder(output['z'])
+            else:   # use externally fed-in z
+                for a, b in zip(z, output['z']):
+                    assert a.shape == b.shape
+                responses_train, responses_test = self.decoder(z)
         output['responses_train'] = responses_train
         output['responses_test'] = responses_test
 

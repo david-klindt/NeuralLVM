@@ -375,6 +375,15 @@ class MLPDecoder(torch.nn.Module):
             kernel_size=kernel_size,
             padding='same',
         )
+        
+        # following not used, just added to keep same training code (todo: clean up in next code version!!!)
+        self.num_ensemble = 1
+        self.ensemble_weights_train = torch.nn.Parameter(
+            torch.randn(num_neuron_train, self.num_ensemble), requires_grad=False
+        )
+        self.ensemble_weights_test = torch.nn.Parameter(
+            torch.randn(num_neuron_test, self.num_ensemble), requires_grad=False
+        )
 
     def forward(self, z):
         """z is list of latents for each manifold"""
@@ -382,8 +391,8 @@ class MLPDecoder(torch.nn.Module):
  
         # works only on single R2 latent space for now!!!
     
-        responses_train = self.train_head(z)  # B x N x L
-        responses_test = self.test_head(z.detach())  # B x N x L
+        responses_train = self.train_head(z).exp()  # B x N x L
+        responses_test = self.test_head(z.detach()).exp()  # B x N x L
         return responses_train, responses_test
 
 
